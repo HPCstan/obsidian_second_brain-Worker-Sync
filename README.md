@@ -55,10 +55,11 @@ npx wrangler secret put JINA_API_KEY
 ```
 
 ### 4. 部署至 Cloudflare
-```bash
-npm install
-npm run deploy
-```
+推薦使用 Cloudflare Dashboard 內建的 GitHub 整合 (Workers CI/CD)，只需點擊幾下即可完成自動部署：
+1. 進入 Cloudflare Dashboard -> **Workers & Pages**。
+2. 建立新的 Worker 或進入現有專案。
+3. 點擊 **Settings (設定)** -> **Builds (建置)** -> **Connect to GitHub (連結至 GitHub)**。
+4. 選擇您的 GitHub 倉庫，Cloudflare 就會在每次程式碼更新時自動為您部署！
 
 ### 5. 綁定 Telegram Webhook
 取得您的 Worker 網址後（例如 `https://your-worker.your-subdomain.workers.dev`），執行附帶的腳本：
@@ -67,13 +68,34 @@ node setup-webhook.js https://your-worker.your-subdomain.workers.dev
 ```
 當顯示 `{ ok: true }` 時即設定完成！
 
+## 📚 終端使用教學 (How to Use)
+
+本系統支援兩種快速剪藏文章的方式：
+
+### 方式一：手機 / 電腦 Telegram 轉發
+1. 開啟您的 Telegram App。
+2. 進入您所建立的 Bot 聊天室。
+3. 直接貼上或轉發任何包含文章網址的訊息給 Bot。
+4. Bot 會立即回覆：「已收到，後台提取中...」。
+5. 數秒後，如果處理成功，Bot 會回覆儲存成功，文章已經安靜地躺在您的 Obsidian (GitHub) 裡了！
+
+### 方式二：電腦版 Chrome 一鍵剪藏擴充功能
+為了讓電腦端瀏覽網頁時更加方便，專案內附贈了一個極簡的 Chrome 擴充功能：
+1. 開啟 Chrome 瀏覽器，前往 `chrome://extensions/`。
+2. 開啟右上角的 **「開發人員模式 (Developer mode)」**。
+3. 點擊 **「載入未封裝項目 (Load unpacked)」**，並選擇本專案內的 `chrome-extension/` 資料夾。
+4. 將擴充功能釘選在右上角的工具列。
+5. **使用方法**：在任何你想收藏的網頁上，點擊該擴充功能按鈕。
+6. 瀏覽器右下角會跳出通知：「已發送成功！正在後台處理中...」。
+7. 處理完畢後，您的手機 Telegram 同樣會收到成功入庫的推播提醒！
+
 ## 📂 資料夾結構
 - `src/index.ts`: Worker 進入點，處理路由與 Webhook。
 - `src/parser.ts`: 負責向 Jina Reader 獲取資料並轉為 Markdown。
 - `src/github.ts`: 封裝 GitHub API 呼叫，處理檔案儲存。
 - `src/telegram.ts`: 封裝 Telegram API 呼叫，處理訊息發送。
+- `chrome-extension/`: Chrome 一鍵剪藏擴充功能的原始碼。
 - `setup-webhook.js`: 用於快速綁定 Telegram Webhook 的輔助腳本。
-- `.github/workflows/deploy.yml`: 包含 GitHub Actions 自動部署腳本，提交程式碼即可自動發布至 Cloudflare。
 
 ## 📝 授權條款
 MIT License
