@@ -100,6 +100,103 @@ export default {
       }
     }
 
+    // PWA Manifest endpoint
+    if (request.method === 'GET' && url.pathname === '/pwa/manifest.json') {
+      const manifest = {
+        name: "Obsidian Clipper",
+        short_name: "Clipper",
+        start_url: "/pwa/install",
+        display: "standalone",
+        icons: [{
+          src: "https://upload.wikimedia.org/wikipedia/commons/1/10/Obsidian_logo.svg",
+          sizes: "512x512",
+          type: "image/svg+xml",
+          purpose: "any"
+        }],
+        share_target: {
+          action: "/pwa/share",
+          method: "GET",
+          params: {
+            title: "title",
+            text: "text",
+            url: "url"
+          }
+        }
+      };
+      return new Response(JSON.stringify(manifest), {
+        headers: { 'Content-Type': 'application/manifest+json' }
+      });
+    }
+
+    // PWA Install page
+    if (request.method === 'GET' && url.pathname === '/pwa/install') {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Obsidian Clipper 安裝頁面</title>
+          <link rel="manifest" href="/pwa/manifest.json">
+          <style>
+            body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f4f4f5; text-align: center; padding: 20px; }
+            img { width: 100px; height: 100px; margin-bottom: 20px; }
+            h1 { color: #18181b; }
+            p { color: #52525b; max-width: 400px; line-height: 1.5; }
+          </style>
+        </head>
+        <body>
+          <img src="https://upload.wikimedia.org/wikipedia/commons/1/10/Obsidian_logo.svg" alt="Obsidian Logo">
+          <h1>Obsidian Clipper</h1>
+          <p>為了在 Android 原生分享選單中使用此工具，請點擊瀏覽器選單 (⋮) 並選擇 <strong>「加到主畫面 (Add to Home screen)」</strong>。</p>
+          <p>安裝完成後，您即可關閉此頁面。</p>
+        </body>
+        </html>
+      `;
+      return new Response(html, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });
+    }
+
+    // PWA Share endpoint
+    if (request.method === 'GET' && url.pathname === '/pwa/share') {
+      const sharedUrl = url.searchParams.get('url') || url.searchParams.get('text');
+      
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>處理中...</title>
+          <style>
+            body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f4f4f5; text-align: center; }
+            h1 { color: #10b981; }
+            p { color: #52525b; }
+          </style>
+        </head>
+        <body>
+          <h1>✅ 發送成功！</h1>
+          <p>文章已在後台處理中，本畫面將自動關閉。</p>
+          <script>
+            setTimeout(() => { window.close(); }, 2000);
+          </script>
+        </body>
+        </html>
+      `;
+
+      if (sharedUrl) {
+        const chatId = Number(env.ADMIN_CHAT_ID);
+        // Extract URL in case the shared text is something like "Check this out: https://..."
+        const urlMatch = sharedUrl.match(/(https?:\/\/[^\s]+)/);
+        const finalUrl = urlMatch ? urlMatch[1] : sharedUrl;
+
+        if (chatId && finalUrl) {
+           ctx.waitUntil(processArticle(env, finalUrl, chatId));
+        }
+      }
+
+      return new Response(html, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });
+    }
+
     return new Response('Not Found', { status: 404 });
   },
 };

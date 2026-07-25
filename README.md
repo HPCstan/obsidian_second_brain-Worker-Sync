@@ -89,6 +89,17 @@ node setup-webhook.js https://your-worker.your-subdomain.workers.dev
 6. 瀏覽器右下角會跳出通知：「已發送成功！正在後台處理中...」。
 7. 處理完畢後，您的手機 Telegram 同樣會收到成功入庫的推播提醒！
 
+### 方式三：Android 手機原生分享選單 (最推薦)
+您可以透過 Progressive Web App (PWA) 技術，將本工具直接變成 Android 手機原生的分享選項之一，完全無需安裝任何第三方 APP：
+1. 在您的 Android 手機上打開 Chrome 瀏覽器。
+2. 在網址列輸入您的 Worker 安裝網址：
+   👉 `https://您的worker網址/pwa/install`
+   *(例如：https://obsidian-clipping-worker.ogeypt.workers.dev/pwa/install)*
+3. 頁面打開後，點擊瀏覽器右上角的選單 (⋮)。
+4. 選擇 **「加到主畫面 (Add to Home screen)」**，並確認新增。
+5. **使用方法**：從現在開始，您在手機上看到任何文章想收藏，只要點擊原生的「分享」按鈕，在分享清單中就會看到一個帶有 Obsidian 官方圖示的 **「Obsidian Clipper」**！
+6. 點擊它，畫面會閃過一個綠色的成功提示並自動關閉。接著您的 Telegram 就會收到文章已存入的通知。
+
 ## 📂 資料夾結構
 - `src/index.ts`: Worker 進入點，處理路由與 Webhook。
 - `src/parser.ts`: 負責向 Jina Reader 獲取資料並轉為 Markdown。
