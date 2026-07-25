@@ -108,9 +108,9 @@ export default {
         start_url: "/pwa/install",
         display: "standalone",
         icons: [{
-          src: "https://upload.wikimedia.org/wikipedia/commons/1/10/Obsidian_logo.svg",
+          src: "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/obsidian.png",
           sizes: "512x512",
-          type: "image/svg+xml",
+          type: "image/png",
           purpose: "any"
         }],
         share_target: {
@@ -140,16 +140,17 @@ export default {
           <link rel="manifest" href="/pwa/manifest.json">
           <style>
             body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f4f4f5; text-align: center; padding: 20px; }
-            img { width: 100px; height: 100px; margin-bottom: 20px; }
+            img { width: 120px; height: 120px; margin-bottom: 20px; border-radius: 20px; }
             h1 { color: #18181b; }
-            p { color: #52525b; max-width: 400px; line-height: 1.5; }
+            p { color: #52525b; max-width: 400px; line-height: 1.5; font-size: 16px;}
+            .btn { background: #7c3aed; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin-top: 20px; font-weight: bold; }
           </style>
         </head>
         <body>
-          <img src="https://upload.wikimedia.org/wikipedia/commons/1/10/Obsidian_logo.svg" alt="Obsidian Logo">
+          <img src="https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/obsidian.png" alt="Obsidian Logo">
           <h1>Obsidian Clipper</h1>
-          <p>為了在 Android 原生分享選單中使用此工具，請點擊瀏覽器選單 (⋮) 並選擇 <strong>「加到主畫面 (Add to Home screen)」</strong>。</p>
-          <p>安裝完成後，您即可關閉此頁面。</p>
+          <p>這個頁面<strong>不是用來輸入網址的</strong>喔！<br><br>這是一個安裝畫面。請點擊右下角的瀏覽器選單 (⋮)，選擇 <strong>「加到主畫面 (Add to Home screen)」</strong>。</p>
+          <p>安裝完成後，以後在任何網頁點擊系統的「分享」，就能直接把它傳到 Obsidian！</p>
         </body>
         </html>
       `;
