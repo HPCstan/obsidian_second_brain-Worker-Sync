@@ -1,0 +1,9 @@
+name = "obsidian-clipping-worker"
+main = "src/index.ts"
+compatibility_date = "2026-06-21"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+GITHUB_REPO = "HPCstan/obsidian_second_brain"
+GITHUB_BRANCH = "main"
+OBSIDIAN_SAVE_PATH = "second_brain/raw/clippings"

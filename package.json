@@ -1,0 +1,20 @@
+{
+  "name": "obsidian-clipping-worker",
+  "version": "1.0.0",
+  "description": "Telegram to Obsidian Clipping Worker",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240512.0",
+    "@types/node": "^26.1.1",
+    "typescript": "^5.4.5",
+    "wrangler": "^3.57.1"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
+}
