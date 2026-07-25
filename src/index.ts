@@ -52,6 +52,54 @@ export default {
       }
     }
 
+    // Browser Extension endpoint
+    if (request.method === 'OPTIONS' && url.pathname === '/webhook/browser') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/webhook/browser') {
+      try {
+        const body: any = await request.json();
+        const articleUrl = body.url;
+        const secret = body.secret;
+        
+        const expectedSecret = env.BROWSER_SECRET || env.TELEGRAM_WEBHOOK_SECRET;
+
+        if (secret !== expectedSecret) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
+        if (!articleUrl) {
+          return new Response('Missing URL', { status: 400 });
+        }
+
+        const chatId = Number(env.ADMIN_CHAT_ID);
+        if (!chatId) {
+           return new Response('ADMIN_CHAT_ID not configured', { status: 500 });
+        }
+
+        // Perform long-running task in background
+        ctx.waitUntil(processArticle(env, articleUrl, chatId));
+
+        return new Response(JSON.stringify({ success: true }), { 
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch (err: any) {
+        console.error('Browser webhook error:', err);
+        return new Response('Error', { status: 500 });
+      }
+    }
+
     return new Response('Not Found', { status: 404 });
   },
 };

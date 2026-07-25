@@ -7,4 +7,6 @@ export interface Env {
   TELEGRAM_WEBHOOK_SECRET: string;
   GITHUB_TOKEN: string;
   JINA_API_KEY?: string;
+  ADMIN_CHAT_ID?: string;
+  BROWSER_SECRET?: string;
 }
