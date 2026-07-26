@@ -96,7 +96,8 @@ node setup-webhook.js https://your-worker.your-subdomain.workers.dev
    👉 `https://您的worker網址/pwa/install`
    *(例如：https://obsidian-clipping-worker.ogeypt.workers.dev/pwa/install)*
 3. 頁面打開後，點擊瀏覽器右上角的選單 (⋮)。
-4. 選擇 **「加到主畫面 (Add to Home screen)」**，並確認新增。
+4. 選擇 **「加到主畫面 (Add to Home screen)」** 或 **「安裝應用程式」**。
+   - *⚠️ 注意：如果系統同時跳出「安裝」與「建立捷徑」的選項，請務必選擇 **「安裝」**（通常帶有向下箭頭圖示）。只有選擇安裝，Android 才會正式把它視為系統 APP 並加入分享選單中。*
 5. **使用方法**：從現在開始，您在手機上看到任何文章想收藏，只要點擊原生的「分享」按鈕，在分享清單中就會看到一個帶有 Obsidian 官方圖示的 **「Obsidian Clipper」**！
 6. 點擊它，畫面會閃過一個綠色的成功提示並自動關閉。接著您的 Telegram 就會收到文章已存入的通知。
 
