@@ -5,7 +5,8 @@
   "description": "One-click save to Obsidian via Cloudflare Worker",
   "permissions": [
     "activeTab",
-    "notifications"
+    "notifications",
+    "contextMenus"
   ],
   "action": {
     "default_title": "Clip to Obsidian"

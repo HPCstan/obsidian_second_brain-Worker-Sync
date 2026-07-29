@@ -1,6 +1,6 @@
 import { Env } from './env';
 import { sendMessage } from './telegram';
-import { processArticle, processQuickNote, processImage } from './parser';
+import { processArticle, processQuickNote, processImage, processBase64Image } from './parser';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -67,6 +67,9 @@ export default {
       try {
         const body: any = await request.json();
         const articleUrl = body.url;
+        const text = body.text;
+        const imageBase64 = body.imageBase64;
+        const mimeType = body.mimeType || 'image/png';
         const secret = body.secret;
         
         const expectedSecret = env.BROWSER_SECRET || env.TELEGRAM_WEBHOOK_SECRET;
@@ -75,8 +78,8 @@ export default {
           return new Response('Unauthorized', { status: 401 });
         }
 
-        if (!articleUrl) {
-          return new Response('Missing URL', { status: 400 });
+        if (!articleUrl && !text && !imageBase64) {
+          return new Response('Missing content', { status: 400 });
         }
 
         const chatId = Number(env.ADMIN_CHAT_ID);
@@ -85,7 +88,13 @@ export default {
         }
 
         // Perform long-running task in background
-        ctx.waitUntil(processArticle(env, articleUrl, chatId));
+        if (imageBase64) {
+          ctx.waitUntil(processBase64Image(env, imageBase64, mimeType, chatId));
+        } else if (text) {
+          ctx.waitUntil(processQuickNote(env, text, chatId));
+        } else if (articleUrl) {
+          ctx.waitUntil(processArticle(env, articleUrl, chatId));
+        }
 
         return new Response(JSON.stringify({ success: true }), { 
           status: 200,

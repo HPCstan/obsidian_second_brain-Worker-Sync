@@ -152,3 +152,22 @@ export async function processImage(env: Env, file: File, chatId: number): Promis
     await sendMessage(env, chatId, `圖片儲存失敗：${error.message || error}`);
   }
 }
+
+export async function processBase64Image(env: Env, base64Data: string, mimeType: string, chatId: number): Promise<void> {
+  try {
+    const timestamp = getTimestampString();
+    
+    let ext = 'jpg';
+    if (mimeType.includes('png')) ext = 'png';
+    else if (mimeType.includes('gif')) ext = 'gif';
+    else if (mimeType.includes('webp')) ext = 'webp';
+    
+    const filename = `${timestamp}-Image.${ext}`;
+    
+    const savedPath = await saveToGitHub(env, filename, base64Data, true);
+    await sendMessage(env, chatId, `已成功存入圖片：\`${savedPath}\``);
+  } catch (error: any) {
+    console.error('Base64 Image error:', error);
+    await sendMessage(env, chatId, `圖片儲存失敗：${error.message || error}`);
+  }
+}
