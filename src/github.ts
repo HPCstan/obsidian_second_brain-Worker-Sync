@@ -1,7 +1,7 @@
 import { Env } from './env';
 import { Buffer } from 'node:buffer';
 
-export async function saveToGitHub(env: Env, filename: string, content: string): Promise<string> {
+export async function saveToGitHub(env: Env, filename: string, content: string, isBase64: boolean = false): Promise<string> {
   const repo = env.GITHUB_REPO;
   const path = `${env.OBSIDIAN_SAVE_PATH}/${filename}`;
   const branch = env.GITHUB_BRANCH || 'main';
@@ -22,7 +22,7 @@ export async function saveToGitHub(env: Env, filename: string, content: string):
     sha = data.sha;
   }
 
-  const base64Content = Buffer.from(content, 'utf-8').toString('base64');
+  const base64Content = isBase64 ? content : Buffer.from(content, 'utf-8').toString('base64');
 
   const putRes = await fetch(url, {
     method: 'PUT',

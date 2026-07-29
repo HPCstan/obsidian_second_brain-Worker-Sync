@@ -1,6 +1,6 @@
 import { Env } from './env';
 import { sendMessage } from './telegram';
-import { processArticle } from './parser';
+import { processArticle, processQuickNote, processImage } from './parser';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -115,11 +115,18 @@ export default {
         }],
         share_target: {
           action: "/pwa/share",
-          method: "GET",
+          method: "POST",
+          enctype: "multipart/form-data",
           params: {
             title: "title",
             text: "text",
-            url: "url"
+            url: "url",
+            files: [
+              {
+                name: "media",
+                accept: ["image/*"]
+              }
+            ]
           }
         }
       };
@@ -157,10 +164,8 @@ export default {
       return new Response(html, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });
     }
 
-    // PWA Share endpoint
-    if (request.method === 'GET' && url.pathname === '/pwa/share') {
-      const sharedUrl = url.searchParams.get('url') || url.searchParams.get('text');
-      
+    // PWA Share endpoint (POST for multipart)
+    if (request.method === 'POST' && url.pathname === '/pwa/share') {
       const html = `
         <!DOCTYPE html>
         <html>
@@ -176,7 +181,7 @@ export default {
         </head>
         <body>
           <h1>✅ 發送成功！</h1>
-          <p>文章已在後台處理中，本畫面將自動關閉。</p>
+          <p>內容已在後台處理中，本畫面將自動關閉。</p>
           <script>
             setTimeout(() => { window.close(); }, 2000);
           </script>
@@ -184,15 +189,31 @@ export default {
         </html>
       `;
 
-      if (sharedUrl) {
-        const chatId = Number(env.ADMIN_CHAT_ID);
-        // Extract URL in case the shared text is something like "Check this out: https://..."
-        const urlMatch = sharedUrl.match(/(https?:\/\/[^\s]+)/);
-        const finalUrl = urlMatch ? urlMatch[1] : sharedUrl;
+      try {
+        const formData = await request.formData();
+        const sharedUrl = formData.get('url') as string;
+        const sharedText = formData.get('text') as string;
+        const media = formData.get('media') as File | null;
 
-        if (chatId && finalUrl) {
-           ctx.waitUntil(processArticle(env, finalUrl, chatId));
+        const chatId = Number(env.ADMIN_CHAT_ID);
+
+        if (chatId) {
+          if (media && media.size > 0) {
+            ctx.waitUntil(processImage(env, media, chatId));
+          } else {
+            const textToProcess = sharedUrl || sharedText;
+            if (textToProcess) {
+              const urlMatch = textToProcess.match(/(https?:\/\/[^\s]+)/);
+              if (urlMatch) {
+                ctx.waitUntil(processArticle(env, urlMatch[1], chatId));
+              } else {
+                ctx.waitUntil(processQuickNote(env, textToProcess, chatId));
+              }
+            }
+          }
         }
+      } catch (err: any) {
+        console.error('PWA Share error:', err);
       }
 
       return new Response(html, { headers: { 'Content-Type': 'text/html;charset=utf-8' } });

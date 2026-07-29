@@ -95,3 +95,60 @@ export async function processArticle(env: Env, url: string, chatId: number): Pro
     await sendMessage(env, chatId, `採集失敗：${error.message || error}`);
   }
 }
+
+function getTimestampString(): string {
+  const now = new Date();
+  return now.toISOString().replace(/[:.]/g, '-').replace('T', '-').split('-').slice(0,6).join('');
+}
+
+export async function processQuickNote(env: Env, text: string, chatId: number): Promise<void> {
+  try {
+    const timestamp = getTimestampString();
+    const filename = `${timestamp}-QuickNote.md`;
+    
+    // Use the first line as a title, up to 50 chars
+    const firstLine = text.split('\n')[0].trim();
+    const title = firstLine.length > 50 ? firstLine.substring(0, 50) + '...' : firstLine;
+    
+    const frontmatter = `---
+title: "速記: ${title.replace(/"/g, '\\"')}"
+source: "Telegram / PWA"
+created_at: ${new Date().toISOString()}
+tags:
+  - quick-note
+  - unread
+---
+
+`;
+    const finalContent = frontmatter + text;
+
+    const savedPath = await saveToGitHub(env, filename, finalContent);
+    await sendMessage(env, chatId, `已成功存入 QuickNote：\`${savedPath}\``);
+  } catch (error: any) {
+    console.error('QuickNote error:', error);
+    await sendMessage(env, chatId, `速記儲存失敗：${error.message || error}`);
+  }
+}
+
+export async function processImage(env: Env, file: File, chatId: number): Promise<void> {
+  try {
+    const timestamp = getTimestampString();
+    
+    // Determine extension
+    let ext = 'jpg';
+    if (file.type === 'image/png') ext = 'png';
+    else if (file.type === 'image/gif') ext = 'gif';
+    else if (file.type === 'image/webp') ext = 'webp';
+    
+    const filename = `${timestamp}-Image.${ext}`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const base64Content = Buffer.from(arrayBuffer).toString('base64');
+
+    const savedPath = await saveToGitHub(env, filename, base64Content, true);
+    await sendMessage(env, chatId, `已成功存入圖片：\`${savedPath}\``);
+  } catch (error: any) {
+    console.error('Image error:', error);
+    await sendMessage(env, chatId, `圖片儲存失敗：${error.message || error}`);
+  }
+}
