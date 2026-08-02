@@ -103,8 +103,11 @@ window.addEventListener('message', async (event) => {
       errReason = `JSON3 網路請求失敗 (${e.message})`;
     }
 
-    // 如果 JSON3 下載異常或回傳非 JSON，改打 XML 原生接口
-    if (!rawText || (!rawText.trim().startsWith('{') && !rawText.trim().startsWith('<'))) {
+    // 判斷是否含有字幕關鍵特徵 (不過濾 Google 安全前綴如 )]}')
+    const isValidContent = (str) => str && (str.includes('{') || str.includes('<') || str.includes('events') || str.includes('transcript'));
+
+    // 如果 JSON3 下載異常或內容無效，改打 XML 原生接口
+    if (!rawText || !isValidContent(rawText)) {
       try {
         const xmlRes = await fetch(selectedTrack.baseUrl, {
           credentials: 'include',
@@ -122,8 +125,9 @@ window.addEventListener('message', async (event) => {
     }
     clearTimeout(timeoutId);
 
-    if (!rawText || (!rawText.trim().startsWith('{') && !rawText.trim().startsWith('<'))) {
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: errReason || '下載內容不符合 JSON/XML 結構' });
+    if (!rawText || !isValidContent(rawText)) {
+      const snippet = rawText ? `(收到的內容開頭: [${rawText.substring(0, 40).replace(/\n/g, ' ')}])` : '(完全空白)';
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: errReason || `下載內容不符合 JSON/XML 結構 ${snippet}` });
       return;
     }
 

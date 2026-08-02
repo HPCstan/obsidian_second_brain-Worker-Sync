@@ -82,19 +82,42 @@ function getTranscriptFromPage() {
         return;
       }
 
-      const rawData = event.data.rawData.trim();
+      let rawData = event.data.rawData.trim();
       const langName = event.data.langName || '預設字幕';
+
+      // 消除 Google/YouTube 常見的安全 JSON 綁架宣告前綴 (例如 )]}'\n)
+      if (rawData.startsWith(")]}'")) {
+        const firstBrace = rawData.indexOf('{');
+        if (firstBrace !== -1) {
+          rawData = rawData.slice(firstBrace);
+        }
+      }
 
       try {
         let formatted = null;
-        if (rawData.startsWith('<') || rawData.includes('<transcript>')) {
-          formatted = formatXmlTranscript(rawData, langName);
-        } else if (rawData.startsWith('{') || rawData.includes('"events"')) {
-          formatted = formatJsonTranscript(rawData, langName);
+        let parseError = '';
+
+        if (rawData.includes('<transcript') || rawData.includes('<?xml') || rawData.trim().startsWith('<')) {
+          try {
+            formatted = formatXmlTranscript(rawData, langName);
+          } catch(err) {
+            parseError = 'XML解析異常: ' + err.message;
+          }
+        } 
+        
+        if (!formatted && (rawData.includes('"events"') || rawData.trim().startsWith('{'))) {
+          try {
+            const idx = rawData.indexOf('{');
+            const cleanJson = idx !== -1 ? rawData.slice(idx) : rawData;
+            formatted = formatJsonTranscript(cleanJson, langName);
+          } catch(err) {
+            parseError = 'JSON解析異常: ' + err.message;
+          }
         }
 
         if (!formatted || formatted.length < 20) {
-          resolve({ success: false, error: '資料已接收但無法成功轉譯排版成 Markdown 字串' });
+          const sample = rawData.substring(0, 50).replace(/\n/g, ' ');
+          resolve({ success: false, error: parseError || `解析排版失敗 (原始資料快照: [${sample}])` });
           return;
         }
 
@@ -105,7 +128,7 @@ function getTranscriptFromPage() {
 
         resolve({ success: true, transcript: formatted, wordCount: formatted.length });
       } catch (e) {
-        resolve({ success: false, error: `解析格式時發生報錯 (${e.message})` });
+        resolve({ success: false, error: `解析腳本發生錯誤 (${e.message})` });
       }
     }
 
