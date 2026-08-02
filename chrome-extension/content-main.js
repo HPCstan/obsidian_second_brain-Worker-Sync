@@ -1,19 +1,33 @@
 // content-main.js — 運行在 YouTube 頁面的 MAIN world
-// 在頁面載入時就主動快取字幕資料，確保不會因 YouTube SPA 切換而遺失
+// 當按下 Obsidian Clipper 時，即時向 YouTube 播放器 (movie_player) 請求最新的字幕資料，徹底解決 SPA 分頁切換找不到字幕的問題
 
-let cachedTranscriptData = null;
+window.addEventListener('message', async (event) => {
+  if (!event.data || event.data.type !== 'OBSIDIAN_GET_TRANSCRIPT') return;
 
-// 頁面載入時立即嘗試擷取字幕資料並快取
-function cacheTranscriptData() {
   try {
     let tracks = null;
 
-    // 方法 1：從 ytInitialPlayerResponse 取得
-    if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
-      tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
+    // 🏆 最強方法 1：即時從 live 的 YouTube 播放器元件呼叫 API，SPA 換頁百分之百能抓到最新影片的字幕
+    try {
+      const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (player && typeof player.getPlayerResponse === 'function') {
+        const response = player.getPlayerResponse();
+        if (response && response.captions) {
+          tracks = response.captions.playerCaptionsTracklistRenderer?.captionTracks;
+        }
+      }
+    } catch (e) {
+      console.warn("getPlayerResponse failed:", e);
     }
 
-    // 方法 2：從 ytplayer.config 取得
+    // 備用方法 2：從 ytInitialPlayerResponse 取得
+    if (!tracks || !tracks.length) {
+      if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
+        tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
+      }
+    }
+
+    // 備用方法 3：從 ytplayer.config 取得
     if ((!tracks || !tracks.length) && window.ytplayer && window.ytplayer.config) {
       try {
         const args = window.ytplayer.config.args;
@@ -23,54 +37,8 @@ function cacheTranscriptData() {
       } catch (e) {}
     }
 
-    // 方法 3：從 DOM script 標籤搜尋
     if (!tracks || !tracks.length) {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
-        const txt = s.textContent || '';
-        if (!txt.includes('captionTracks')) continue;
-        // 使用更寬鬆的 regex 擷取 captionTracks 陣列
-        const match = txt.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
-        if (match && match[1]) {
-          try { tracks = JSON.parse(match[1]); } catch (e) {}
-          if (tracks && tracks.length) break;
-        }
-        // 備用 regex
-        const match2 = txt.match(/"captionTracks"\s*:\s*(\[.*?\])\s*[,}]/);
-        if (match2 && match2[1]) {
-          try { tracks = JSON.parse(match2[1]); } catch (e) {}
-          if (tracks && tracks.length) break;
-        }
-      }
-    }
-
-    if (tracks && tracks.length) {
-      cachedTranscriptData = tracks;
-    }
-  } catch (e) {}
-}
-
-// 立即執行一次快取（可能還太早，沒資料）
-cacheTranscriptData();
-
-// DOM 載入完成後再試一次
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => cacheTranscriptData());
-}
-
-// 延遲 1.5 秒後再試一次（確保 YouTube SPA 初始化完成）
-setTimeout(() => cacheTranscriptData(), 1500);
-
-// 監聽 content.js 的請求
-window.addEventListener('message', async (event) => {
-  if (!event.data || event.data.type !== 'OBSIDIAN_GET_TRANSCRIPT') return;
-
-  try {
-    // 如果快取為空，再嘗試一次
-    if (!cachedTranscriptData) cacheTranscriptData();
-
-    const tracks = cachedTranscriptData;
-    if (!tracks || !tracks.length) {
+      console.warn("[Obsidian Clipper] 找不到可用之字幕軌道資料。");
       window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', rawData: null, langName: null });
       return;
     }
@@ -88,7 +56,7 @@ window.addEventListener('message', async (event) => {
 
     const langName = (selectedTrack.name && selectedTrack.name.simpleText) || selectedTrack.languageCode || '';
 
-    // 在頁面主世界中 fetch — 自動帶上使用者真實的 YouTube Cookie
+    // 在頁面主世界中 fetch — 自動帶上使用者真實的 YouTube Cookie 與 Session
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(selectedTrack.baseUrl + '&fmt=json3', {
@@ -98,6 +66,7 @@ window.addEventListener('message', async (event) => {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
+      console.warn("[Obsidian Clipper] 下載字幕 JSON3 失敗:", res.status);
       window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', rawData: null, langName });
       return;
     }
@@ -105,6 +74,7 @@ window.addEventListener('message', async (event) => {
     const rawText = await res.text();
     window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', rawData: rawText, langName });
   } catch (e) {
+    console.error("[Obsidian Clipper] 字幕提取處理拋錯:", e);
     window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', rawData: null, langName: null });
   }
 });
