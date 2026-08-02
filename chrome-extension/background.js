@@ -3,9 +3,11 @@ const WORKER_URL = "https://obsidian-clipping-worker.ogeypt.workers.dev/webhook/
 // 設定您的 Webhook 密碼 (預設與 TELEGRAM_WEBHOOK_SECRET 相同)
 const WORKER_SECRET = "1234";
 
-const ICON_BLUE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAy 12IDJ6IiBmaWxsPSIjNDI4NUY0Ii8+PC9zdmc+";
-const ICON_GREEN = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAy 12IDJ6IiBmaWxsPSIjMEY5RDU4Ii8+PC9zdmc+";
-const ICON_RED = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAy 12IDJ6IiBmaWxsPSIjREIzMjM2Ii8+PC9zdmc+";
+const ICON_BLUE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6IiBmaWxsPSIjNDI4NUY0Ii8+PC9zdmc+";
+const ICON_GREEN = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6IiBmaWxsPSIjMEY5RDU4Ii8+PC9zdmc+";
+const ICON_RED = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6IiBmaWxsPSIjREIzMjM2Ii8+PC9zdmc+";
+
+console.log("Obsidian Clipper service worker loaded");
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -61,124 +63,40 @@ async function sendToWorker(payload) {
   }
 }
 
-// Handler for the extension icon click (defaults to URL)
+// Handler for the extension icon click
 chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab || !tab.url) return;
-  await handleUrlClip(tab);
-});
-
-async function extractYouTubeTranscriptInTab() {
   try {
-    let tracks = null;
-    // 優先從 YouTube 全域變數取得字幕軌道資訊
-    if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
-      tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!tab || !tab.url) return;
+    await handleUrlClip(tab);
+  } catch (e) {
+    console.error("Click handler error:", e);
+    // 保底：至少把 URL 送出去
+    if (tab && tab.url) {
+      await sendToWorker({ url: tab.url });
     }
-    // 備用：從 HTML 原始碼中用 regex 搜尋
-    if (!tracks || !tracks.length) {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
-        const txt = s.textContent || '';
-        const match = txt.match(/"captionTracks":\s*(\[.*?\])\s*,/);
-        if (match && match[1]) {
-          try { tracks = JSON.parse(match[1]); } catch(e) {}
-          if (tracks && tracks.length) break;
-        }
-      }
-    }
-    if (!tracks || !tracks.length) return null;
-
-    // 挑選語系：中文優先 > 英文 > 第一個
-    let selectedTrack = tracks.find(t => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh');
-    if (!selectedTrack) selectedTrack = tracks.find(t => t.languageCode && t.languageCode.startsWith('en'));
-    if (!selectedTrack) selectedTrack = tracks[0];
-    if (!selectedTrack || !selectedTrack.baseUrl) return null;
-
-    const langName = (selectedTrack.name && selectedTrack.name.simpleText) || selectedTrack.languageCode || '預設字幕';
-
-    // 在瀏覽器頁面中 fetch 字幕（帶上使用者真實 Cookie），設定 4 秒超時
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    let res;
-    try {
-      res = await fetch(`${selectedTrack.baseUrl}&fmt=json3`, {
-        credentials: 'include',
-        signal: controller.signal
-      });
-    } catch (e) {
-      clearTimeout(timeoutId);
-      return null;
-    }
-    clearTimeout(timeoutId);
-
-    if (!res.ok) return null;
-    const rawText = await res.text();
-    if (!rawText || rawText.length < 10 || !rawText.startsWith('{')) return null;
-
-    let data;
-    try { data = JSON.parse(rawText); } catch(e) { return null; }
-    const events = data.events;
-    if (!events || !Array.isArray(events)) return null;
-
-    let formattedLines = `> 💡 **字幕語系 / 版本 (瀏覽器原音摘抄)**：${langName}\n\n`;
-    let currentBuffer = '';
-    let startTimestamp = '';
-    let accumulatedLines = [];
-
-    for (const ev of events) {
-      if (!ev.segs || !Array.isArray(ev.segs)) continue;
-      const text = ev.segs.map(s => s.utf8 || '').join('').trim();
-      if (!text || text === '\n') continue;
-
-      const tStartMs = ev.tStartMs || 0;
-      const totalSeconds = Math.floor(tStartMs / 1000);
-      const minutes = Math.floor(totalSeconds / 60);
-      const seconds = totalSeconds % 60;
-      const timeTag = `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}]`;
-
-      if (!startTimestamp) startTimestamp = timeTag;
-      currentBuffer += ' ' + text;
-
-      if (currentBuffer.length > 45 || /[.?!。？！]$/.test(text)) {
-        accumulatedLines.push(`- **${startTimestamp}** ${currentBuffer.trim()}`);
-        currentBuffer = '';
-        startTimestamp = '';
-      }
-    }
-    if (currentBuffer.trim()) {
-      accumulatedLines.push(`- **${startTimestamp || '[00:00]'}** ${currentBuffer.trim()}`);
-    }
-
-    return formattedLines + accumulatedLines.join('\n');
-  } catch (err) {
-    return null;
   }
-}
+});
 
 async function handleUrlClip(tab) {
   if (!tab || !tab.url) return;
   let payload = { url: tab.url };
 
-  // 只在 YouTube 頁面嘗試在瀏覽器端抓取字幕
+  // 如果是 YouTube 頁面，嘗試透過 content script 取得字幕
   if (tab.id && (tab.url.includes("youtube.com/") || tab.url.includes("youtu.be/"))) {
     try {
-      // 用 Promise.race 加 6 秒硬限時，確保不會無限等待
-      const scriptPromise = chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: extractYouTubeTranscriptInTab
-      });
-      const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 6000));
-      const results = await Promise.race([scriptPromise, timeoutPromise]);
-
-      if (results && Array.isArray(results) && results[0] && results[0].result) {
-        payload.transcript = results[0].result;
+      const response = await Promise.race([
+        chrome.tabs.sendMessage(tab.id, { action: 'getTranscript' }),
+        new Promise(resolve => setTimeout(() => resolve(null), 5000))
+      ]);
+      if (response && response.transcript) {
+        payload.transcript = response.transcript;
       }
     } catch (e) {
-      console.warn("YouTube transcript extraction skipped:", e.message || e);
+      // content script 可能尚未注入（頁面在擴充安裝前就已開啟），略過
+      console.warn("Transcript extraction skipped:", e.message || e);
     }
   }
 
-  // 不論字幕是否取得成功，一定會走到這裡送出到 Worker
   await sendToWorker(payload);
 }
 
@@ -202,7 +120,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       const imgRes = await fetch(info.srcUrl);
       const blob = await imgRes.blob();
       const base64DataUrl = await blobToBase64(blob);
-      // data:image/png;base64,iVBORw0KGgo...
       const mimeType = base64DataUrl.split(';')[0].split(':')[1];
       const base64Data = base64DataUrl.split(',')[1];
       

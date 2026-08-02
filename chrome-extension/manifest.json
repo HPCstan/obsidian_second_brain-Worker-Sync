@@ -1,22 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Obsidian Clipper",
-  "version": "1.0",
+  "version": "1.1",
   "description": "One-click save to Obsidian via Cloudflare Worker",
   "permissions": [
     "activeTab",
     "notifications",
-    "contextMenus",
-    "scripting"
-  ],
-  "host_permissions": [
-    "https://*.youtube.com/*",
-    "https://*.youtu.be/*"
+    "contextMenus"
   ],
   "action": {
     "default_title": "Clip to Obsidian"
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.youtube.com/*", "https://*.youtu.be/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }
