@@ -26,8 +26,80 @@ tags:
 `;
 }
 
+function getYouTubeVideoId(url: string): string | null {
+  const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const match = url.match(regExp);
+  return (match && match[1].length === 11) ? match[1] : null;
+}
+
+async function processYouTubeArticle(env: Env, url: string, videoId: string, chatId: number): Promise<void> {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+    const res = await fetch(oembedUrl);
+    
+    let title = `YouTube Video (${videoId})`;
+    let author = 'YouTube Channel';
+    let authorUrl = 'https://www.youtube.com';
+    let thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    
+    if (res.ok) {
+      const data: any = await res.json();
+      if (data.title) title = data.title;
+      if (data.author_name) author = data.author_name;
+      if (data.author_url) authorUrl = data.author_url;
+      if (data.thumbnail_url) thumbnailUrl = data.thumbnail_url;
+    }
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const cleanTitle = sanitizeFilename(title);
+    const filename = `${dateStr}-${cleanTitle}.md`;
+    
+    const safeTitle = title.replace(/"/g, '\\"');
+    const safeAuthor = author.replace(/"/g, '\\"');
+    
+    const content = `---
+title: "${safeTitle}"
+source: "${url}"
+author: "${safeAuthor}"
+created_at: ${now.toISOString()}
+tags:
+  - clipping
+  - youtube
+  - unread
+---
+
+# ${title}
+
+> [!NOTE] 頻道資訊
+> 作者 / 頻道：**[${author}](${authorUrl})**
+> 影片連結：[在 YouTube 上觀看](${url})
+
+## 影片封面與預覽
+
+![影片封面](${thumbnailUrl})
+
+## 影片嵌入 (Embed)
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+`;
+
+    const savedPath = await saveToGitHub(env, filename, content);
+    await sendMessage(env, chatId, `已成功存入 YouTube 影片：\`${savedPath}\``);
+  } catch (error: any) {
+    console.error('YouTube process error:', error);
+    await sendMessage(env, chatId, `YouTube 影片儲存失敗：${error.message || error}`);
+  }
+}
+
 export async function processArticle(env: Env, url: string, chatId: number): Promise<void> {
   try {
+    const youtubeId = getYouTubeVideoId(url);
+    if (youtubeId) {
+      await processYouTubeArticle(env, url, youtubeId, chatId);
+      return;
+    }
+
     // 1. Fetch from Jina Reader API
     const jinaUrl = `https://r.jina.ai/${url}`;
     const headers: Record<string, string> = {
