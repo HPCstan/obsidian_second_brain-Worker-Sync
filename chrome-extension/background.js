@@ -3,9 +3,9 @@ const WORKER_URL = "https://obsidian-clipping-worker.ogeypt.workers.dev/webhook/
 // 設定您的 Webhook 密碼 (預設與 TELEGRAM_WEBHOOK_SECRET 相同)
 const WORKER_SECRET = "1234";
 
-const ICON_BLUE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6IiBmaWxsPSIjNDI4NUY0Ii8+PC9zdmc+";
-const ICON_GREEN = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6IiBmaWxsPSIjMEY5RDU4Ii8+PC9zdmc+";
-const ICON_RED = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6IiBmaWxsPSIjREIzMjM2Ii8+PC9zdmc+";
+const ICON_BLUE = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAy IDEyIDJ6IiBmaWxsPSIjNDI4NUY0Ii8+PC9zdmc+";
+const ICON_GREEN = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAy IDEyIDJ6IiBmaWxsPSIjMEY5RDU4Ii8+PC9zdmc+";
+const ICON_RED = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAy IDEyIDJ6IiBmaWxsPSIjREIzMjM2Ii8+PC9zdmc+";
 
 console.log("Obsidian Clipper service worker loaded");
 
@@ -27,14 +27,7 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-async function sendToWorker(payload) {
-  chrome.notifications.create({
-    type: "basic",
-    iconUrl: ICON_BLUE,
-    title: "Obsidian Clipper",
-    message: "傳送至 Worker 中..."
-  });
-
+async function sendToWorker(payload, customSuccessMessage) {
   try {
     const response = await fetch(WORKER_URL, {
       method: "POST",
@@ -47,7 +40,7 @@ async function sendToWorker(payload) {
         type: "basic",
         iconUrl: ICON_GREEN,
         title: "Obsidian Clipper",
-        message: "✅ 已發送成功！正在後台處理中..."
+        message: customSuccessMessage || "✅ 已發送成功！正在後台處理中..."
       });
     } else {
       const errText = await response.text();
@@ -70,7 +63,6 @@ chrome.action.onClicked.addListener(async (tab) => {
     await handleUrlClip(tab);
   } catch (e) {
     console.error("Click handler error:", e);
-    // 保底：至少把 URL 送出去
     if (tab && tab.url) {
       await sendToWorker({ url: tab.url });
     }
@@ -80,24 +72,43 @@ chrome.action.onClicked.addListener(async (tab) => {
 async function handleUrlClip(tab) {
   if (!tab || !tab.url) return;
   let payload = { url: tab.url };
+  let statusMessage = null;
 
   // 如果是 YouTube 頁面，嘗試透過 content script 取得字幕
   if (tab.id && (tab.url.includes("youtube.com/") || tab.url.includes("youtu.be/"))) {
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: ICON_BLUE,
+      title: "Obsidian Clipper",
+      message: "⏳ 正在自 Chrome 提取 YouTube 字幕與通訊..."
+    });
+
     try {
       const response = await Promise.race([
         chrome.tabs.sendMessage(tab.id, { action: 'getTranscript' }),
-        new Promise(resolve => setTimeout(() => resolve(null), 5000))
+        new Promise(resolve => setTimeout(() => resolve({ success: false, error: '等待回覆超時' }), 6000))
       ]);
-      if (response && response.transcript) {
+
+      if (response && response.success && response.transcript) {
         payload.transcript = response.transcript;
+        statusMessage = `✅ 成功複製 YouTube 字幕 (共 ${response.wordCount} 字) 並同步複製進剪貼簿！已開始同步至 GitHub！`;
+      } else {
+        const errDesc = response && response.error ? response.error : '未安裝或尚未刷新頁面';
+        statusMessage = `⚠️ 字幕提取失敗 (${errDesc})，即將僅歸檔影片連結至 GitHub。`;
       }
     } catch (e) {
-      // content script 可能尚未注入（頁面在擴充安裝前就已開啟），略過
-      console.warn("Transcript extraction skipped:", e.message || e);
+      statusMessage = `⚠️ 無法聯繫套件腳本 (${e.message || e})，請重新整理 YouTube 頁面後再按一次！`;
     }
+  } else {
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: ICON_BLUE,
+      title: "Obsidian Clipper",
+      message: "傳送至 Worker 中..."
+    });
   }
 
-  await sendToWorker(payload);
+  await sendToWorker(payload, statusMessage);
 }
 
 // Helper to convert blob to base64
