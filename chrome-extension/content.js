@@ -1,83 +1,58 @@
-// content.js — 只在 YouTube 頁面注入，負責在瀏覽器端提取字幕
-// 透過 chrome.runtime.onMessage 與 background.js 通訊
+// content.js — 運行在 ISOLATED world
+// 負責與 background.js 通訊（chrome API），並透過 window.postMessage 與 content-main.js 交換資料
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getTranscript') {
-    extractTranscript()
+    getTranscriptFromPage()
       .then(transcript => sendResponse({ transcript }))
       .catch(() => sendResponse({ transcript: null }));
-    return true; // 保持 message channel 開啟以支援 async 回覆
+    return true; // 保持 message channel 開啟
   }
 });
 
-async function extractTranscript() {
-  // 方法 1：從 YouTube 全域變數取得字幕軌道
-  let tracks = null;
-  try {
-    if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
-      tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
-    }
-  } catch (e) {}
+function getTranscriptFromPage() {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve(null);
+    }, 6000);
 
-  // 方法 2：從 <script> 標籤中用 regex 搜尋
-  if (!tracks || !tracks.length) {
-    const scripts = document.querySelectorAll('script');
-    for (const s of scripts) {
-      const txt = s.textContent || '';
-      const match = txt.match(/"captionTracks":\s*(\[.*?\])\s*,/);
-      if (match && match[1]) {
-        try {
-          tracks = JSON.parse(match[1]);
-        } catch (e) {}
-        if (tracks && tracks.length) break;
+    function handler(event) {
+      if (!event.data || event.data.type !== 'OBSIDIAN_TRANSCRIPT_RESULT') return;
+      window.removeEventListener('message', handler);
+      clearTimeout(timeout);
+
+      const rawData = event.data.rawData;
+      const langName = event.data.langName || '預設字幕';
+
+      if (!rawData || rawData.length < 10 || !rawData.startsWith('{')) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        const formatted = formatTranscript(rawData, langName);
+        resolve(formatted);
+      } catch (e) {
+        resolve(null);
       }
     }
-  }
 
-  if (!tracks || !tracks.length) return null;
+    window.addEventListener('message', handler);
+    // 向 MAIN world 的 content-main.js 發送提取請求
+    window.postMessage({ type: 'OBSIDIAN_GET_TRANSCRIPT' });
+  });
+}
 
-  // 挑選語系：中文優先 > 英文 > 第一個
-  let selectedTrack =
-    tracks.find(t => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh') ||
-    tracks.find(t => t.languageCode && t.languageCode.startsWith('en')) ||
-    tracks[0];
-
-  if (!selectedTrack || !selectedTrack.baseUrl) return null;
-
-  const langName = (selectedTrack.name && selectedTrack.name.simpleText) || selectedTrack.languageCode || '預設字幕';
-
-  // 在使用者瀏覽器中 fetch 字幕（帶上真實 Cookie），4 秒超時
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-  let res;
-  try {
-    res = await fetch(selectedTrack.baseUrl + '&fmt=json3', {
-      credentials: 'include',
-      signal: controller.signal,
-    });
-  } catch (e) {
-    clearTimeout(timeoutId);
-    return null;
-  }
-  clearTimeout(timeoutId);
-
-  if (!res.ok) return null;
-
-  const rawText = await res.text();
-  if (!rawText || rawText.length < 10 || !rawText.startsWith('{')) return null;
-
-  let data;
-  try { data = JSON.parse(rawText); } catch (e) { return null; }
-
+function formatTranscript(rawJson, langName) {
+  const data = JSON.parse(rawJson);
   const events = data.events;
   if (!events || !Array.isArray(events)) return null;
 
-  // 格式化字幕為 Markdown
-  let formattedLines = `> 💡 **字幕語系 (瀏覽器端摘取)**：${langName}\n\n`;
+  let result = `> 💡 **字幕語系 (瀏覽器端摘取)**：${langName}\n\n`;
   let currentBuffer = '';
   let startTimestamp = '';
-  const accumulatedLines = [];
+  const lines = [];
 
   for (const ev of events) {
     if (!ev.segs || !Array.isArray(ev.segs)) continue;
@@ -94,14 +69,15 @@ async function extractTranscript() {
     currentBuffer += ' ' + text;
 
     if (currentBuffer.length > 45 || /[.?!。？！]$/.test(text)) {
-      accumulatedLines.push(`- **${startTimestamp}** ${currentBuffer.trim()}`);
+      lines.push(`- **${startTimestamp}** ${currentBuffer.trim()}`);
       currentBuffer = '';
       startTimestamp = '';
     }
   }
   if (currentBuffer.trim()) {
-    accumulatedLines.push(`- **${startTimestamp || '[00:00]'}** ${currentBuffer.trim()}`);
+    lines.push(`- **${startTimestamp || '[00:00]'}** ${currentBuffer.trim()}`);
   }
 
-  return formattedLines + accumulatedLines.join('\n');
+  if (lines.length === 0) return null;
+  return result + lines.join('\n');
 }
