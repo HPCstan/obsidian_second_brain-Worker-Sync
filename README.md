@@ -1,113 +1,88 @@
-# Telegram to Obsidian Sync Worker
+# Obsidian Knowledge Clipper & Worker Sync
+**—— 全能跨平台知識採集、淨化、自動存檔於 Obsidian 的第二大腦引擎 ——**
 
-這是一個基於 Cloudflare Workers 的輕量級自動化資訊採集系統。
-它的主要目標是：透過手機 Telegram Bot 發送任何文章網址，系統會在背景自動抓取網頁正文、將其轉換為乾淨的 Markdown 格式，並透過 GitHub API 直接推送到您的 Obsidian 筆記倉庫中。
+這是一個基於 **Cloudflare Workers (Serverless)** 的頂級無阻力自動化資訊採集與深化處理系統。
+無論是網頁報導、文字劃線重點、Youtube 影片、隨心速記語句還是網頁圖片，只要透過**手機 Android PWA 原生分享選單、電腦 Chrome 擴充功能**或 **Telegram Bot**，系統均會在雲端執行強力自動化解析、兩段式強悍去廣告淨化，並以零時差速度透過 GitHub API 一鍵推送到您的 **Obsidian** 知識庫中！
 
-## 🎯 專案目標
-在資訊爆炸的時代，我們常在手機上看到不錯的文章想要收藏進自己的 Second Brain (如 Obsidian)。傳統做法需要手動複製、打開筆記軟體、貼上並重新排版，過程繁瑣。
-本專案打造了一個**最小阻力**的收集管道：
-**手機 Telegram 轉發 -> 雲端自動處理排版 -> Obsidian 自動同步**
+---
 
-## 🛠 技術棧與架構
-本專案採用以下技術實作：
-- **Cloudflare Workers**: 無伺服器邊緣運算，負責接收 Webhook、處理非同步任務 (`ctx.waitUntil`)、並調用各種 API。免費且穩定。
-- **Telegram Bot API**: 作為使用者輸入的介面，支援跨平台（iOS/Android/Desktop）快速分享與轉發。
-- **Jina Reader API (`r.jina.ai`)**: 強大的網頁內容提取引擎，能精準去除廣告與干擾元素，將網頁內容轉換為高品質的 Markdown。
-- **GitHub API**: 將生成的 Markdown 檔案直接提交 (Commit) 到您的 Obsidian Git 同步倉庫中。
-- **TypeScript**: 提供型別安全的開發體驗。
+## 🌟 核心特色與升級功能亮點 (Key Features & Upgrades)
 
-## 🔄 執行流程 (Pipeline)
-1. **輸入 (Input)**: 使用者在 Telegram 傳送包含文章 URL 的訊息給專屬 Bot。
-2. **接收 (Receive)**: Cloudflare Worker 接收到 Webhook，立即回覆 Telegram：「已收到，後台提取中...」，並透過 `ctx.waitUntil()` 將繁重的抓取任務放入背景執行，隨即回傳 `HTTP 200 OK` 避免 Telegram 超時重試。
-3. **處理 (Process)**:
-   - Worker 呼叫 Jina Reader API 提取文章正文、標題與作者。
-   - Worker 過濾標題中的特殊字元，自動生成檔案名稱：`YYYY-MM-DD-文章標題.md`。
-   - 根據 Obsidian 的要求，在 Markdown 頂部組合標準的 YAML Frontmatter（包含時間、標籤、來源等資訊）。
-4. **輸出 (Output)**: Worker 將組合好的 Markdown 轉換為 Base64，透過 GitHub API 發送 `PUT` 請求寫入目標倉庫。
-5. **通知 (Notify)**: 寫入成功或失敗後，Worker 再次呼叫 Telegram API 通知使用者結果。
+### 1. 🛡️ 兩段式強力廣告淨化與「新聞瀑布流刀切截斷」
+許多現代媒體與新聞平台（如太報 TaiBao、LINE Today、Yahoo 台灣新聞、三立、UDN 等）除了側邊廣告外，更常於結尾掛載超長「無限捲動推薦熱評、Taboola 商業推銷、不相關的頭條轉播」，舊款爬蟲極易將整幅騷擾廢文也爬回筆記內。我們為此量身打造了重裝淨化防禦：
+- **層級一：DOM 結構去臭剔除**：在對 Jina Reader API 請求中植入 `X-Remove-Selector` 選擇器，先遣消滅導覽列 (`nav, header`)、浮動廣告板位 (`.ads, .taboola, .outbrain, aside, #sidebar`) 與群眾評論區。
+- **層級二：推薦流極速截斷刀引擎 (End-of-Article Truncated)**：自研的 TypeScript 後端行文掃描器，逐列編校時只要碰見諸如「**更多**報導/新聞/文章**」、「**延伸閱讀**」、「**推薦閱讀**」、「**其他人也在看**」、「**熱門焦點**」等關鍵結尾詞牆，⚡ **立馬揮刀切斷紀錄 (`break` 終止掃描)**，保證所有進入您第二大腦的文章通通停止於主內文句點後，不藏絲毫垃圾！
 
-## 🚀 部署與使用指南
+### 2. 🎬 YouTube 與 Shorts 影片極致收藏與「內嵌沉浸播放」
+打破舊式爬蟲遭遇 YouTube 抗機器人機制報出 401 拒訪的困局，重構改以 Youtube 官方 oEmbed API 高速接軌：
+- **自動標籤索引**：筆記內建寫入 `tag: youtube`，同步抓取影片最高解析度封面圖片與作者頻道名稱。
+- **內嵌 iframe 現場開播**：獨創在 Markdown 筆記中部置入標準 HTML **`<iframe embed>` 影音窗格**。當您打開電腦或手機的 Obsidian 時，可以**直接在筆記裡面邊看 Youtube 影片邊做複習語錄與截圖摘抄**，感受絕無僅有的極致學習筆記感！
 
-### 1. 前置作業
-您需要準備以下帳號與金鑰：
-- **Cloudflare 帳號**
-- **Telegram Bot Token** (透過 `@BotFather` 取得)
-- **Telegram Webhook Secret** (自訂的字串，用於安全驗證)
-- **GitHub Personal Access Token (PAT)** (需具備目標倉庫的 `Contents` 讀寫權限)
-- **Jina API Key** (可選，前往 Jina AI 官網免費申請，避免共用 IP 遇到 429 限速問題)
+### 3. 🧠 智慧判別「金句劃線引用 (Highlight Quote)」與「任意對話框隨想速記 (QuickNote)」
+不再是非黑即白的死板邏輯。手機與電腦傳進來的資產將被「智慧分流引擎」細緻照顧：
+- **網頁精華段落劃線**：當您在瀏覽網頁時反白兩句精闢佳句，按下分享後，系統不再衝動地重爬整千字網頁！它會將選取文字轉成耐看的 **Markdown 引用對話框 (`> `)**，並把網頁標題與鏈接列在「**來源：[新聞題目](網址)**」底下，清爽至極！
+- **任意對話框 / Google 搜尋框直接打字分享**：隨遇想法想記錄？直接打開手機端 Google 搜尋對話框、通訊錄或備忘錄填下幾句心得，一鍵選轉向 Clipper 分享，毫無附隨網址照樣 **100% 替您抓穩立冊於 QuickNote** 筆記匣！
+- **圖片抓取支援**：全線接受 Base64 格式轉換與原生二進制寫入，一鍵幫您保存精彩製圖。
 
-### 2. 環境變數設定
-在部署前，請確保在 `wrangler.toml` 中設定您的 GitHub 倉庫資訊：
-```toml
-[vars]
-GITHUB_REPO = "您的GitHub帳號/您的Obsidian倉庫"
-GITHUB_BRANCH = "main"
-OBSIDIAN_SAVE_PATH = "second_brain/raw/clippings" # 儲存路徑
+### 4. 🚀 Chrome V3 現代規範 (零背景佔用 / Zero Memory Consumption)
+專用 PC 端 Chrome 擴充套件採用最新的 Manifest V3 架構開發：
+- 當您沒有動作或瀏覽 30 秒後，Service Worker 靜心進入**「休眠 (Inactive)」**狀態，**完全不消耗您寶貴的 CPU 與內部記憶體**。
+- 一旦在任何視窗觸及分享右鍵，後台將於千分之一秒之內即時復甦發熱、把工件妥投而去！
+
+---
+
+## 📚 全局終端攻略與實戰操作指南 (How to Use)
+
+本系統支援三方主幹大門，一組 Worker 打通，隨想隨用：
+
+### 📱 方式一：Android 手機 PWA 原生分享選單 (極力推薦！)
+透過 Progressive Web App (PWA) 原生封裝，無須下載肥大的 APP 或開關其餘通訊對話：
+1. 用 **Android 手機上的 Chrome** 打開您的專屬安裝網址：
+   👉 `https://您的worker網址.workers.dev/pwa/install`
+2. 點擊瀏覽器右上方的 3 個點選項 **(⋮)**，選取 **「加到主畫面」** 或 **「安裝應用程式」**。
+   - *⚠️【重要指南】：若畫面彈出詢問安裝形式，請務必指名挑選帶有「向下箭頭標籤」的 **「安裝 (Install)」**！此舉能讓 Android 將我們的工具視為正牌核心組件，自動寫入「系統全局分享聯覽單 (Android Share Menu)」！*
+3. **實戰施展**：
+   - 🌐 **抓全文**：在任意瀏覽器看好新聞 -> 按分享 -> 點 **Obsidian Clipper** -> 自動淨化、刀割除殘入 Obsidian！
+   - ✍️ **劃線存金句**：手指在好文中反白段落字體 -> 分享 -> 點 **Obsidian Clipper** -> 優美 Markdown 引用筆記加上原鏈接報到！
+   - ⚡ **打字隨筆錄**：在 Google 搜尋列 / 備忘本 打上心中靈感 -> 反白分享給 Clipper -> 為您生出一幅乾淨 **QuickNote** 檔案！
+   - 🎬 **YouTube 留存**：手機 YouTube APP 打開影片或 Shorts -> 點下方箭頭「分享」 -> **Obsidian Clipper** -> 下班打開筆記可連著影音繼續複看！
+
+### 💻 方式二：電腦 Windows/macOS - Chrome / Edge 套件一鍵剪藏與右鍵選單
+讓桌面工作的研究採集一氣呵成：
+1. 下載專案資料，前往瀏覽器之套件管理 `chrome://extensions/`（開啟右邊頂角的 **「開發人員模式」**）。
+2. 點按 **「載入未封裝項目」** 並選中本檔案組之 `chrome-extension/` 目錄，鎖針駐停於右上排功能框。
+3. **實戰施展**：
+   - **快速整頁蒐羅**：閱覽中點擊一下工具列的「 **O** 」圖示或於網頁隨意空白處點按**滑鼠右鍵 ->「剪藏當前網頁到 Obsidian」**！
+   - **精采段落擷取**：反白好書或報導文字，右鍵 -> **「將選取文字傳送至 Obsidian」**！
+   - **單幅寫真收藏**：滑鼠停駐於滿意的展示圖上，右鍵 -> **「將圖片傳送至 Obsidian」**（後台自轉為獨立影像歸檔至 Obsidian 圖片夾）！
+
+### 💬 方式三：跨界自由 Telegram Bot 全功能轉發
+熟悉聊天社群或多帳互借？這一樣很順路！
+- 打開設定之 Bot 會話窗口。
+- 貼入一則好文章網址、發發自拍廢圖，甚至敲上三五句話作為札記。
+- Robot 即刻秒回「已收到，後台處理中...」，於眨眼幾下內把豐收喜帖以推送訊息答慰於您！
+
+---
+
+## 🛠 技術基礎架構與目錄覽點 (Tech Stack & Structure)
+- **Edge 雲端中樞**：基於 Cloudflare Workers 的極簡伺服器邏輯與 TypeScript 架構。
+- **無阻爬蟲串流**：依賴 Jina Reader 核心，擴建前綴過濾陣列與自研後綴 `cleanArticleContent()` 行家剪截邏輯。
+- **GitHub 橋接倉儲**：以無感 Git PUT 直接與主倉庫合約連線。
+
+```
+├── src/
+│   ├── index.ts        # Worker 進入中心 (統轄 PWA 表單路由、多態分流、TG Webhook 驗證)
+│   ├── parser.ts       # 核心轉化總監 (掌管 YouTube 官方解構、兩段去廣告引擎、推薦瀑布流大刀)
+│   ├── github.ts       # GitHub PUT / Base64 編譯與連鎖存倉器
+│   └── telegram.ts     # 傳輸告捷推播、雙向交信介面
+├── chrome-extension/   # 電腦端 Chrome/Edge 神級一鍵收斂、右鍵智慧選單套件原始檔
+├── README.md           # 本權威部署與玩法指南
+└── setup-webhook.js    # Telegram Bot 自動綁定小助手
 ```
 
-### 3. 上傳金鑰 (Secrets)
-請透過 Wrangler 將機密資訊上傳至 Cloudflare：
-```bash
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
-npx wrangler secret put GITHUB_TOKEN
-npx wrangler secret put JINA_API_KEY
-```
+---
 
-### 4. 部署至 Cloudflare
-推薦使用 Cloudflare Dashboard 內建的 GitHub 整合 (Workers CI/CD)，只需點擊幾下即可完成自動部署：
-1. 進入 Cloudflare Dashboard -> **Workers & Pages**。
-2. 建立新的 Worker 或進入現有專案。
-3. 點擊 **Settings (設定)** -> **Builds (建置)** -> **Connect to GitHub (連結至 GitHub)**。
-4. 選擇您的 GitHub 倉庫，Cloudflare 就會在每次程式碼更新時自動為您部署！
+## 🔒 隱私與開源授權 (License & Privacy)
+所有採集與儲存手續唯於您的**專屬私人 Cloudflare 帳戶與個人 GitHub / Obsidian 私房筆記本間秘密直導**，不經任何不明之中繼商手腳，高純隱私、盡收掌底！
 
-### 5. 綁定 Telegram Webhook
-取得您的 Worker 網址後（例如 `https://your-worker.your-subdomain.workers.dev`），執行附帶的腳本：
-```bash
-node setup-webhook.js https://your-worker.your-subdomain.workers.dev
-```
-當顯示 `{ ok: true }` 時即設定完成！
-
-## 📚 終端使用教學 (How to Use)
-
-本系統支援兩種快速剪藏文章的方式：
-
-### 方式一：手機 / 電腦 Telegram 轉發
-1. 開啟您的 Telegram App。
-2. 進入您所建立的 Bot 聊天室。
-3. 直接貼上或轉發任何包含文章網址的訊息給 Bot。
-4. Bot 會立即回覆：「已收到，後台提取中...」。
-5. 數秒後，如果處理成功，Bot 會回覆儲存成功，文章已經安靜地躺在您的 Obsidian (GitHub) 裡了！
-
-### 方式二：電腦版 Chrome 一鍵剪藏擴充功能
-為了讓電腦端瀏覽網頁時更加方便，專案內附贈了一個極簡的 Chrome 擴充功能：
-1. 開啟 Chrome 瀏覽器，前往 `chrome://extensions/`。
-2. 開啟右上角的 **「開發人員模式 (Developer mode)」**。
-3. 點擊 **「載入未封裝項目 (Load unpacked)」**，並選擇本專案內的 `chrome-extension/` 資料夾。
-4. 將擴充功能釘選在右上角的工具列。
-5. **使用方法**：在任何你想收藏的網頁上，點擊該擴充功能按鈕。
-6. 瀏覽器右下角會跳出通知：「已發送成功！正在後台處理中...」。
-7. 處理完畢後，您的手機 Telegram 同樣會收到成功入庫的推播提醒！
-
-### 方式三：Android 手機原生分享選單 (最推薦)
-您可以透過 Progressive Web App (PWA) 技術，將本工具直接變成 Android 手機原生的分享選項之一，完全無需安裝任何第三方 APP：
-1. 在您的 Android 手機上打開 Chrome 瀏覽器。
-2. 在網址列輸入您的 Worker 安裝網址：
-   👉 `https://您的worker網址/pwa/install`
-   *(例如：https://obsidian-clipping-worker.ogeypt.workers.dev/pwa/install)*
-3. 頁面打開後，點擊瀏覽器右上角的選單 (⋮)。
-4. 選擇 **「加到主畫面 (Add to Home screen)」** 或 **「安裝應用程式」**。
-   - *⚠️ 注意：如果系統同時跳出「安裝」與「建立捷徑」的選項，請務必選擇 **「安裝」**（通常帶有向下箭頭圖示）。只有選擇安裝，Android 才會正式把它視為系統 APP 並加入分享選單中。*
-5. **使用方法**：從現在開始，您在手機上看到任何文章想收藏，只要點擊原生的「分享」按鈕，在分享清單中就會看到一個帶有 Obsidian 官方圖示的 **「Obsidian Clipper」**！
-6. 點擊它，畫面會閃過一個綠色的成功提示並自動關閉。接著您的 Telegram 就會收到文章已存入的通知。
-
-## 📂 資料夾結構
-- `src/index.ts`: Worker 進入點，處理路由與 Webhook。
-- `src/parser.ts`: 負責向 Jina Reader 獲取資料並轉為 Markdown。
-- `src/github.ts`: 封裝 GitHub API 呼叫，處理檔案儲存。
-- `src/telegram.ts`: 封裝 Telegram API 呼叫，處理訊息發送。
-- `chrome-extension/`: Chrome 一鍵剪藏擴充功能的原始碼。
-- `setup-webhook.js`: 用於快速綁定 Telegram Webhook 的輔助腳本。
-
-## 📝 授權條款
-MIT License
+**MIT License** —— 歡迎您暢遊知識海，築造最強壯的第二大腦！🚀
