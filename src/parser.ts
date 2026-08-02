@@ -33,21 +33,26 @@ function getYouTubeVideoId(url: string): string | null {
 }
 
 async function fetchYouTubeTranscript(videoId: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
+
   try {
     const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
         'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7'
       }
     });
     
-    if (!pageRes.ok) return '> ℹ️ *無法取得影片網頁資料或被第三方訪問限制。*';
+    if (!pageRes.ok) {
+      return '> ℹ️ *無法取得影片網頁資料或遭到 YouTube 防衛安全驗證封阻。*';
+    }
     const html = await pageRes.text();
     
-    // Look for captionTracks in the HTML using a regex guaranteed not to break on nested JSON objects
     const match = html.match(/"captionTracks":\s*(\[[^\[\]]+\])/);
     if (!match || !match[1]) {
-      return '> ℹ️ *此影片未提供封閉字幕或自動語音生成字幕 (CC)。*';
+      return '> ℹ️ *此影片未提供封閉字幕或遭到 YouTube 防機器人檢查（Bot Challenge）阻截雲端訪問。您可直接於上方播放器點選 CC 字幕對照觀賞！*';
     }
     
     let tracks: any[] = [];
@@ -58,16 +63,15 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string> {
     }
     
     if (!tracks || tracks.length === 0) {
-      return '> ℹ️ *此影片未提供字幕。*';
+      return '> ℹ️ *此影片未提供可用之字幕軌。*';
     }
     
-    // Find preferred language track (Traditional Chinese -> English -> any)
     let selectedTrack = tracks.find((t: any) => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh');
     if (!selectedTrack) {
       selectedTrack = tracks.find((t: any) => t.languageCode?.startsWith('en'));
     }
     if (!selectedTrack) {
-      selectedTrack = tracks[0]; // fallback to whatever is first
+      selectedTrack = tracks[0];
     }
     
     const langName = selectedTrack.name?.simpleText || selectedTrack.languageCode || '預設字幕';
@@ -76,13 +80,25 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string> {
       return '> ℹ️ *無法取得字幕下載網址。*';
     }
     
-    // Fetch the actual caption text (use JSON3 format for easy parsing)
-    const transcriptRes = await fetch(`${baseUrl}&fmt=json3`);
+    const transController = new AbortController();
+    const transTimeout = setTimeout(() => transController.abort(), 3000);
+    const transcriptRes = await fetch(`${baseUrl}&fmt=json3`, {
+      signal: transController.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+      }
+    }).finally(() => clearTimeout(transTimeout));
+    
     if (!transcriptRes.ok) {
-      return '> ℹ️ *下載字幕資料時遭遇 HTTP 錯誤。*';
+      return '> ℹ️ *下載字幕資料時遭遇 HTTP 拒止。*';
     }
     
-    const captionData: any = await transcriptRes.json();
+    const rawText = await transcriptRes.text();
+    if (!rawText || !rawText.trim() || !rawText.trim().startsWith('{')) {
+      return '> ℹ️ *因 YouTube 伺服器端之金鑰簽證 (PoToken / Cookie 隔離) 防衛驗證，雲端處理中樞無法自該接口下線全文檔案。您可以在前方 iframe 播放器中直接點啟官方 CC 字幕邊播邊賞！*';
+    }
+
+    const captionData: any = JSON.parse(rawText);
     const events = captionData.events;
     if (!events || !Array.isArray(events)) {
       return '> ℹ️ *字幕檔案內容為空。*';
@@ -104,12 +120,10 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string> {
       const seconds = totalSeconds % 60;
       const timeTag = `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}]`;
       
-      // If we don't have a start timestamp for this line yet, set it
       if (!startTimestamp) startTimestamp = timeTag;
       
       currentBuffer += ' ' + text;
       
-      // When buffer reaches a decent sentence length or ending punctuation, output a bullet
       if (currentBuffer.length > 45 || /[.?!。？！]$/.test(text)) {
         accumulatedLines.push(`- **${startTimestamp}** ${currentBuffer.trim()}`);
         currentBuffer = '';
@@ -123,8 +137,10 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string> {
     
     return formattedLines + accumulatedLines.join('\n');
   } catch (err: any) {
-    console.error('Transcript fetching error:', err);
-    return `> ⚠️ *取得字幕時發生錯誤：${err.message || err}*`;
+    console.warn('Transcript fetch fallback:', err);
+    return `> ℹ️ *因為 YouTube 抗爬蟲安全審查或連線逾時，此次未一併抓入字幕台詞。下方影片本體已為您完整內嵌！*`;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
