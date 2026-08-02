@@ -70,27 +70,53 @@ chrome.action.onClicked.addListener(async (tab) => {
 async function extractYouTubeTranscriptInTab() {
   try {
     let tracks = null;
+    // 優先從 YouTube 全域變數取得字幕軌道資訊
     if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
       tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
     }
+    // 備用：從 HTML 原始碼中用 regex 搜尋
     if (!tracks || !tracks.length) {
-      const html = document.documentElement.innerHTML;
-      const match = html.match(/"captionTracks":\s*(\[[^\[\]]+\])/);
-      if (match && match[1]) {
-        try { tracks = JSON.parse(match[1]); } catch(e) {}
+      const scripts = document.querySelectorAll('script');
+      for (const s of scripts) {
+        const txt = s.textContent || '';
+        const match = txt.match(/"captionTracks":\s*(\[.*?\])\s*,/);
+        if (match && match[1]) {
+          try { tracks = JSON.parse(match[1]); } catch(e) {}
+          if (tracks && tracks.length) break;
+        }
       }
     }
     if (!tracks || !tracks.length) return null;
 
+    // 挑選語系：中文優先 > 英文 > 第一個
     let selectedTrack = tracks.find(t => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh');
     if (!selectedTrack) selectedTrack = tracks.find(t => t.languageCode && t.languageCode.startsWith('en'));
     if (!selectedTrack) selectedTrack = tracks[0];
     if (!selectedTrack || !selectedTrack.baseUrl) return null;
 
     const langName = (selectedTrack.name && selectedTrack.name.simpleText) || selectedTrack.languageCode || '預設字幕';
-    const res = await fetch(`${selectedTrack.baseUrl}&fmt=json3`, { credentials: 'include' });
+
+    // 在瀏覽器頁面中 fetch 字幕（帶上使用者真實 Cookie），設定 4 秒超時
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    let res;
+    try {
+      res = await fetch(`${selectedTrack.baseUrl}&fmt=json3`, {
+        credentials: 'include',
+        signal: controller.signal
+      });
+    } catch (e) {
+      clearTimeout(timeoutId);
+      return null;
+    }
+    clearTimeout(timeoutId);
+
     if (!res.ok) return null;
-    const data = await res.json();
+    const rawText = await res.text();
+    if (!rawText || rawText.length < 10 || !rawText.startsWith('{')) return null;
+
+    let data;
+    try { data = JSON.parse(rawText); } catch(e) { return null; }
     const events = data.events;
     if (!events || !Array.isArray(events)) return null;
 
@@ -103,16 +129,16 @@ async function extractYouTubeTranscriptInTab() {
       if (!ev.segs || !Array.isArray(ev.segs)) continue;
       const text = ev.segs.map(s => s.utf8 || '').join('').trim();
       if (!text || text === '\n') continue;
-      
+
       const tStartMs = ev.tStartMs || 0;
       const totalSeconds = Math.floor(tStartMs / 1000);
       const minutes = Math.floor(totalSeconds / 60);
       const seconds = totalSeconds % 60;
       const timeTag = `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}]`;
-      
+
       if (!startTimestamp) startTimestamp = timeTag;
       currentBuffer += ' ' + text;
-      
+
       if (currentBuffer.length > 45 || /[.?!。？！]$/.test(text)) {
         accumulatedLines.push(`- **${startTimestamp}** ${currentBuffer.trim()}`);
         currentBuffer = '';
@@ -133,20 +159,26 @@ async function handleUrlClip(tab) {
   if (!tab || !tab.url) return;
   let payload = { url: tab.url };
 
+  // 只在 YouTube 頁面嘗試在瀏覽器端抓取字幕
   if (tab.id && (tab.url.includes("youtube.com/") || tab.url.includes("youtu.be/"))) {
     try {
-      const results = await chrome.scripting.executeScript({
+      // 用 Promise.race 加 6 秒硬限時，確保不會無限等待
+      const scriptPromise = chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: extractYouTubeTranscriptInTab
       });
-      if (results && results[0] && results[0].result) {
+      const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 6000));
+      const results = await Promise.race([scriptPromise, timeoutPromise]);
+
+      if (results && Array.isArray(results) && results[0] && results[0].result) {
         payload.transcript = results[0].result;
       }
     } catch (e) {
-      console.warn("In-browser script execution error:", e);
+      console.warn("YouTube transcript extraction skipped:", e.message || e);
     }
   }
 
+  // 不論字幕是否取得成功，一定會走到這裡送出到 Worker
   await sendToWorker(payload);
 }
 
