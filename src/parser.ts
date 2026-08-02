@@ -98,9 +98,16 @@ function cleanArticleContent(content: string): string {
   
   for (const line of lines) {
     const trimmed = line.trim();
+    const stripForm = trimmed.replace(/^(?:#{1,6}\s*|[\*\-\=\_]{2,}\s*)+|[\*\-\=\_]{2,}\s*$/g, '').trim();
     
-    // Filter out common advertisement, newsletter, and social sharing boilerplate slogans
-    if (/^(廣告|Advertisement|Share on|分享至|分享到|分享：|追蹤我們|點此下載|推薦閱讀|延伸閱讀|相關文章|相關報導|按讚追蹤|加入 LINE|訂閱電子報)[:：\s]?$/i.test(trimmed)) {
+    // Check if we hit an end-of-article recommendation/advertisement feed separator
+    if (cleanedLines.length > 3 && /^(?:更多.+(?:報導|報道|新聞|文章|內容)|看更多.+|延伸閱讀|相關(?:閱讀|新聞|報導|報道|文章)|推薦(?:閱讀|新聞|文章|內容)|熱門(?:新聞|文章|焦點|報導)|其他人也(?:看|在看|看了)|大家(?:都在看|正觀看|也盯著)|人氣(?:點閱|新聞|文章|排行榜)|猜你(?:也喜歡|喜歡|想看|沒看過)|人氣推薦|人氣夯文|編輯推薦|點擊前往)[:：\s]*$/i.test(stripForm)) {
+      // Truncate! Everything below this separator is related articles, advertisements, or bottom news feeds.
+      break;
+    }
+    
+    // Filter out internal recommendation link lines or common ad / newsletter slogans
+    if (/^【?(?:(?:延伸|相關|推薦)(?:閱讀|新聞|報導|報道|文章)|看更多|更多報導|推薦分享|推薦文章|廣告|Advertisement|Share on|分享至|分享到|分享：|追蹤我們|點此下載|按讚追蹤|加入 LINE|訂閱電子報)[:：\s]*/i.test(stripForm)) {
       continue;
     }
     // Filter out lines that are purely social sharing or junk links without narrative content
@@ -126,7 +133,7 @@ export async function processArticle(env: Env, url: string, chatId: number): Pro
     const jinaUrl = `https://r.jina.ai/${url}`;
     const headers: Record<string, string> = {
       'Accept': 'application/json',
-      'X-Remove-Selector': 'header, nav, footer, aside, .ads, .ad, .advertisement, .sidebar, .comments, .related-posts, .social-share, [role="navigation"], [role="banner"], [role="contentinfo"], #sidebar, #footer, .share-buttons, .ad-box, iframe:not([src*="youtube"])'
+      'X-Remove-Selector': 'header, nav, footer, aside, .ads, .ad, .advertisement, .sidebar, .comments, .related-posts, .related-news, .recommend, .recommend-news, .social-share, [role="navigation"], [role="banner"], [role="contentinfo"], #sidebar, #footer, #comments, .share-buttons, .ad-box, .taboola, .outbrain, [class*="recommend"], [class*="related"], [id*="recommend"], [id*="related"], iframe:not([src*="youtube"])'
     };
     if (env.JINA_API_KEY) {
       headers['Authorization'] = `Bearer ${env.JINA_API_KEY}`;

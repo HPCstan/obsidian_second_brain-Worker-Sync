@@ -214,43 +214,33 @@ export default {
             let isNote = false;
             let noteContent = '';
             
-            // Check if user selected text on a webpage or typed text in an input box
-            if (sharedText) {
-              // Strip URLs to see if there is actual descriptive/highlighted text
-              const textWithoutUrls = sharedText.replace(/https?:\/\/[^\s]+/g, '').trim();
-              if (sharedUrl && textWithoutUrls.length > 0 && textWithoutUrls !== sharedTitle.trim() && textWithoutUrls !== sharedUrl) {
-                // User highlighted text on a webpage while URL was simultaneously provided by browser
+            // Check if there is any URL present anywhere in the shared fields
+            const extractedUrl = sharedUrl || (sharedText.match(/(https?:\/\/[^\s]+)/)?.[1]) || (sharedTitle.match(/(https?:\/\/[^\s]+)/)?.[1]);
+            
+            if (extractedUrl) {
+              // A URL exists! When should we treat this as a highlighted quote note instead of scraping the article?
+              // Only when sharedUrl is provided separately AND sharedText has clean text without a URL (meaning user highlighted text on the page)
+              const hasUrlInText = /https?:\/\/[^\s]+/.test(sharedText);
+              if (sharedUrl && sharedText && !hasUrlInText && sharedText !== sharedTitle.trim() && sharedText !== sharedUrl) {
+                // User highlighted text on a webpage!
                 isNote = true;
                 noteContent = `> ${sharedText.replace(/\n/g, '\n> ')}\n\n---\n來源：[${sharedTitle || sharedUrl}](${sharedUrl})`;
-              } else if (!sharedUrl && !sharedText.match(/https?:\/\/[^\s]+/)) {
-                // Pure text shared without any URL (e.g. from Google Search box or text editor)
-                isNote = true;
-                noteContent = sharedText;
-              } else if (!sharedUrl && textWithoutUrls.length > 20) {
-                // Long text containing a link, treat as a quick note / reflection
-                isNote = true;
-                noteContent = sharedText;
+              } else {
+                // In all other cases where a URL is present (like sharing a link from News apps, Chrome menu share, etc.), we ALWAYS scrape the article!
+                isNote = false;
               }
-            } else if (!sharedText && !sharedUrl && sharedTitle) {
-              // Only title field was populated by Android share menu (happens in search boxes)
+            } else {
+              // No URL anywhere! This is purely typed text from a text box, Google search dialog, or notes app!
               isNote = true;
-              noteContent = sharedTitle;
+              noteContent = [sharedTitle, sharedText].filter(Boolean).join('\n').trim();
             }
 
             if (isNote && noteContent) {
               ctx.waitUntil(processQuickNote(env, noteContent, chatId));
-            } else {
-              // Otherwise, extract target URL to scrape as an article
-              const potentialUrl = sharedUrl || (sharedText.match(/(https?:\/\/[^\s]+)/)?.[1]) || (sharedTitle.match(/(https?:\/\/[^\s]+)/)?.[1]);
-              if (potentialUrl) {
-                ctx.waitUntil(processArticle(env, potentialUrl, chatId));
-              } else {
-                // Guaranteed fallback: save whatever text/title exists as a QuickNote so nothing is ever lost!
-                const fallbackText = [sharedTitle, sharedText].filter(Boolean).join('\n').trim();
-                if (fallbackText) {
-                  ctx.waitUntil(processQuickNote(env, fallbackText, chatId));
-                }
-              }
+            } else if (extractedUrl) {
+              ctx.waitUntil(processArticle(env, extractedUrl, chatId));
+            } else if (noteContent) {
+              ctx.waitUntil(processQuickNote(env, noteContent, chatId));
             }
           }
         }
