@@ -32,6 +32,102 @@ function getYouTubeVideoId(url: string): string | null {
   return (match && match[1].length === 11) ? match[1] : null;
 }
 
+async function fetchYouTubeTranscript(videoId: string): Promise<string> {
+  try {
+    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7'
+      }
+    });
+    
+    if (!pageRes.ok) return '> ℹ️ *無法取得影片網頁資料或被第三方訪問限制。*';
+    const html = await pageRes.text();
+    
+    // Look for captionTracks in the HTML using a regex guaranteed not to break on nested JSON objects
+    const match = html.match(/"captionTracks":\s*(\[[^\[\]]+\])/);
+    if (!match || !match[1]) {
+      return '> ℹ️ *此影片未提供封閉字幕或自動語音生成字幕 (CC)。*';
+    }
+    
+    let tracks: any[] = [];
+    try {
+      tracks = JSON.parse(match[1]);
+    } catch (e) {
+      return '> ℹ️ *解析字幕軌道結構失敗。*';
+    }
+    
+    if (!tracks || tracks.length === 0) {
+      return '> ℹ️ *此影片未提供字幕。*';
+    }
+    
+    // Find preferred language track (Traditional Chinese -> English -> any)
+    let selectedTrack = tracks.find((t: any) => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh');
+    if (!selectedTrack) {
+      selectedTrack = tracks.find((t: any) => t.languageCode?.startsWith('en'));
+    }
+    if (!selectedTrack) {
+      selectedTrack = tracks[0]; // fallback to whatever is first
+    }
+    
+    const langName = selectedTrack.name?.simpleText || selectedTrack.languageCode || '預設字幕';
+    const baseUrl = selectedTrack.baseUrl;
+    if (!baseUrl) {
+      return '> ℹ️ *無法取得字幕下載網址。*';
+    }
+    
+    // Fetch the actual caption text (use JSON3 format for easy parsing)
+    const transcriptRes = await fetch(`${baseUrl}&fmt=json3`);
+    if (!transcriptRes.ok) {
+      return '> ℹ️ *下載字幕資料時遭遇 HTTP 錯誤。*';
+    }
+    
+    const captionData: any = await transcriptRes.json();
+    const events = captionData.events;
+    if (!events || !Array.isArray(events)) {
+      return '> ℹ️ *字幕檔案內容為空。*';
+    }
+    
+    let formattedLines = `> 💡 **字幕語系 / 版本**：${langName}\n\n`;
+    let currentBuffer = '';
+    let startTimestamp = '';
+    let accumulatedLines: string[] = [];
+    
+    for (const ev of events) {
+      if (!ev.segs || !Array.isArray(ev.segs)) continue;
+      const text = ev.segs.map((s: any) => s.utf8 || '').join('').trim();
+      if (!text || text === '\n') continue;
+      
+      const tStartMs = ev.tStartMs || 0;
+      const totalSeconds = Math.floor(tStartMs / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      const timeTag = `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}]`;
+      
+      // If we don't have a start timestamp for this line yet, set it
+      if (!startTimestamp) startTimestamp = timeTag;
+      
+      currentBuffer += ' ' + text;
+      
+      // When buffer reaches a decent sentence length or ending punctuation, output a bullet
+      if (currentBuffer.length > 45 || /[.?!。？！]$/.test(text)) {
+        accumulatedLines.push(`- **${startTimestamp}** ${currentBuffer.trim()}`);
+        currentBuffer = '';
+        startTimestamp = '';
+      }
+    }
+    
+    if (currentBuffer.trim()) {
+      accumulatedLines.push(`- **${startTimestamp || '[00:00]'}** ${currentBuffer.trim()}`);
+    }
+    
+    return formattedLines + accumulatedLines.join('\n');
+  } catch (err: any) {
+    console.error('Transcript fetching error:', err);
+    return `> ⚠️ *取得字幕時發生錯誤：${err.message || err}*`;
+  }
+}
+
 async function processYouTubeArticle(env: Env, url: string, videoId: string, chatId: number): Promise<void> {
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
@@ -49,6 +145,9 @@ async function processYouTubeArticle(env: Env, url: string, videoId: string, cha
       if (data.author_url) authorUrl = data.author_url;
       if (data.thumbnail_url) thumbnailUrl = data.thumbnail_url;
     }
+    
+    // Simultaneously fetch the video transcript subtitles!
+    const transcriptText = await fetchYouTubeTranscript(videoId);
     
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
@@ -82,6 +181,10 @@ tags:
 ## 影片嵌入 (Embed)
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
+## 📝 影片全文字幕 (Transcript)
+
+${transcriptText}
 `;
 
     const savedPath = await saveToGitHub(env, filename, content);
