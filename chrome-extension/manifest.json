@@ -9,6 +9,10 @@
     "contextMenus",
     "scripting"
   ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://*.youtu.be/*"
+  ],
   "action": {
     "default_title": "Clip to Obsidian"
   },
