@@ -1,14 +1,108 @@
 // content-main.js — 運行在 YouTube 頁面的 MAIN world
-// 與影片播放器實體及全域變數深度對接，抓取 JSON3/XML 字幕下載線路並帶上 Cookie 請求，完備診斷
+// 🏆 核心革新：以「網頁 DOM UI 自動模擬點擊與元素抓取」為第一優先戰略 (全面抵禦 YouTube 空值與防蟲簽證封鎖)，網路接口 API 作為二線備用
+
+async function extractFromDOM() {
+  try {
+    // 1. 檢查是否已經有字幕面版開啟中
+    let segments = document.querySelectorAll('ytd-transcript-segment-renderer, .transcript-segment');
+    
+    if (!segments || segments.length === 0) {
+      // 嘗試點擊展開說明欄 (#expand)
+      const expandBtn = document.querySelector('ytd-text-inline-expander #expand, #description #expand, tp-yt-paper-button#expand');
+      if (expandBtn && expandBtn.click) {
+        try { expandBtn.click(); } catch(e){}
+      }
+
+      // 稍等 200ms 讓說明欄開起與渲染
+      await new Promise(r => setTimeout(r, 200));
+
+      // 尋找「顯示轉錄稿 / Show transcript / 打開文字稿」按鈕 (不限語系，透過 YouTube 標準組件架構過濾)
+      let transcriptBtn = document.querySelector(
+        'ytd-video-description-transcript-section-renderer button, ' +
+        'ytd-video-description-transcript-section-renderer yt-button-shape button, ' +
+        'button[aria-label*="transcript" i], ' +
+        'button[aria-label*="轉錄" i], ' +
+        'button[aria-label*="文字稿" i]'
+      );
+
+      // 如果沒透過 selector 找到，遍歷頁面上可見按鈕尋找特徵關鍵字
+      if (!transcriptBtn) {
+        const allBtns = document.querySelectorAll('button, tp-yt-paper-button, yt-button-shape button');
+        for (const btn of allBtns) {
+          const txt = (btn.textContent || btn.getAttribute('aria-label') || '').trim();
+          if (/show transcript|顯示轉錄稿|打開文字稿|開啟轉錄稿|字幕/i.test(txt) && !/cc|subtitle/i.test(txt)) {
+            transcriptBtn = btn;
+            break;
+          }
+        }
+      }
+
+      if (transcriptBtn && transcriptBtn.click) {
+        try { transcriptBtn.click(); } catch(e){}
+      }
+
+      // 等待 YouTube 官方渲染字幕面板登場 (最多等待 2.5 秒，每 200ms 探測一次)
+      for (let i = 0; i < 12; i++) {
+        await new Promise(r => setTimeout(r, 200));
+        segments = document.querySelectorAll('ytd-transcript-segment-renderer, .transcript-segment');
+        if (segments && segments.length > 0) break;
+      }
+    }
+
+    if (!segments || segments.length === 0) {
+      return null;
+    }
+
+    // 讀取字幕節點中的時間戳與文字
+    let result = `> 💡 **字幕來源 (自 YouTube 網頁 DOM 官方面板自動取回)**：Live Transcript UI\n\n`;
+    let currentBuffer = '';
+    let startTimestamp = '';
+    const lines = [];
+
+    segments.forEach((seg) => {
+      const timeEl = seg.querySelector('.segment-timestamp, .segment-start-offset, [class*="timestamp"]');
+      const textEl = seg.querySelector('.segment-text, .segment-text-content, [class*="text"]');
+      
+      let timeTag = timeEl ? timeEl.textContent.trim().replace(/\[|\]/g, '') : '00:00';
+      const text = textEl ? textEl.textContent.trim() : '';
+      if (!text) return;
+
+      if (!startTimestamp) startTimestamp = timeTag;
+      currentBuffer += ' ' + text;
+
+      if (currentBuffer.length > 45 || /[.?!。？！]$/.test(text)) {
+        lines.push(`- **[${startTimestamp}]** ${currentBuffer.trim()}`);
+        currentBuffer = '';
+        startTimestamp = '';
+      }
+    });
+
+    if (currentBuffer.trim()) {
+      lines.push(`- **[${startTimestamp || '00:00'}]** ${currentBuffer.trim()}`);
+    }
+
+    return lines.length > 0 ? (result + lines.join('\n')) : null;
+  } catch (e) {
+    console.warn("[Obsidian Clipper] DOM extraction error:", e);
+    return null;
+  }
+}
 
 window.addEventListener('message', async (event) => {
   if (!event.data || event.data.type !== 'OBSIDIAN_GET_TRANSCRIPT') return;
 
   try {
+    // 🥇 第一優先：嘗試直接呼叫 YouTube 官方 UI DOM 字幕面板取詞 (100% 免除 HTTP API 遭阻擋或空白字元防護)
+    const domTranscript = await extractFromDOM();
+    if (domTranscript && domTranscript.length > 30) {
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: true, formatted: domTranscript, source: 'DOM_UI' });
+      return;
+    }
+
+    // 🥈 第二順位：網路請求 API 下載與 JSON/XML 解析
     let tracks = null;
     let tryMethodsLog = [];
 
-    // 1. 從 live 的 YouTube 播放器元件呼叫 API
     try {
       const player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
       if (player && typeof player.getPlayerResponse === 'function') {
@@ -20,23 +114,19 @@ window.addEventListener('message', async (event) => {
           tryMethodsLog.push("movie_player (無 captions)");
         }
       } else {
-        tryMethodsLog.push("movie_player (未尋獲播放器物件)");
+        tryMethodsLog.push("movie_player (未尋獲播放器)");
       }
     } catch (e) {
       tryMethodsLog.push("movie_player 錯誤");
     }
 
-    // 2. 備用：從 ytInitialPlayerResponse 取得
     if (!tracks || !tracks.length) {
       if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
         tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
         if (tracks && tracks.length) tryMethodsLog.push("ytInitialPlayerResponse (成功)");
-      } else {
-        tryMethodsLog.push("ytInitialPlayerResponse (無字幕)");
       }
     }
 
-    // 3. 備用：從 ytplayer.config 取得
     if ((!tracks || !tracks.length) && window.ytplayer && window.ytplayer.config) {
       try {
         const args = window.ytplayer.config.args;
@@ -47,43 +137,24 @@ window.addEventListener('message', async (event) => {
       } catch (e) {}
     }
 
-    // 4. 備用：從 DOM script 標籤原始碼尋找
-    if (!tracks || !tracks.length) {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
-        const txt = s.textContent || '';
-        if (!txt.includes('captionTracks')) continue;
-        const match = txt.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
-        if (match && match[1]) {
-          try { tracks = JSON.parse(match[1]); } catch (e) {}
-          if (tracks && tracks.length) {
-            tryMethodsLog.push("DOM scripts (成功)");
-            break;
-          }
-        }
-      }
-    }
-
     if (!tracks || !tracks.length) {
       const detail = tryMethodsLog.length ? `(已嘗試: ${tryMethodsLog.join(', ')})` : '';
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: `於頁面變數中未見 captionTracks 欄位 ${detail}` });
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: `DOM 提取及 API 皆失敗，未見 captionTracks ${detail}` });
       return;
     }
 
-    // 挑選語系：中文優先 > 英文 > 第一個
     let selectedTrack =
       tracks.find(t => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh') ||
       tracks.find(t => t.languageCode && t.languageCode.startsWith('en')) ||
       tracks[0];
 
     if (!selectedTrack || !selectedTrack.baseUrl) {
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: '自 captionTracks 解析成功，但該軌道中毫無 baseUrl 連結' });
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: '找到軌道但無 baseUrl 下載鏈接' });
       return;
     }
 
     const langName = (selectedTrack.name && selectedTrack.name.simpleText) || selectedTrack.languageCode || '預設字幕';
 
-    // 優先下載 JSON3 格式；如果失敗或拒捕則直接載入默認 XML 格式
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -103,10 +174,8 @@ window.addEventListener('message', async (event) => {
       errReason = `JSON3 網路請求失敗 (${e.message})`;
     }
 
-    // 判斷是否含有字幕關鍵特徵 (不過濾 Google 安全前綴如 )]}')
     const isValidContent = (str) => str && (str.includes('{') || str.includes('<') || str.includes('events') || str.includes('transcript'));
 
-    // 如果 JSON3 下載異常或內容無效，改打 XML 原生接口
     if (!rawText || !isValidContent(rawText)) {
       try {
         const xmlRes = await fetch(selectedTrack.baseUrl, {
@@ -117,21 +186,21 @@ window.addEventListener('message', async (event) => {
           rawText = await xmlRes.text();
           errReason = null;
         } else {
-          errReason = `XML 與 JSON3 下載皆失敗 (HTTP ${xmlRes.status})`;
+          errReason = `XML 下載失敗 (HTTP ${xmlRes.status})`;
         }
       } catch (e) {
-        errReason = `連線 YouTube 字幕線路逾時或受阻 (${e.message})`;
+        errReason = `連線 YouTube 字幕線路受阻 (${e.message})`;
       }
     }
     clearTimeout(timeoutId);
 
     if (!rawText || !isValidContent(rawText)) {
       const snippet = rawText ? `(收到的內容開頭: [${rawText.substring(0, 40).replace(/\n/g, ' ')}])` : '(完全空白)';
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: errReason || `下載內容不符合 JSON/XML 結構 ${snippet}` });
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: errReason || `API 下載遭到 YouTube 阻絕 ${snippet}` });
       return;
     }
 
-    window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: true, rawData: rawText, langName });
+    window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: true, rawData: rawText, langName, source: 'NETWORK_API' });
   } catch (e) {
     window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: `提取腳本崩潰 (${e.message})` });
   }

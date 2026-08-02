@@ -77,8 +77,17 @@ function getTranscriptFromPage() {
       window.removeEventListener('message', handler);
       clearTimeout(timeout);
 
-      if (!event.data.success || !event.data.rawData) {
-        resolve({ success: false, error: event.data.error || '未自播放器索取到原始資料' });
+      if (!event.data.success || (!event.data.rawData && !event.data.formatted)) {
+        resolve({ success: false, error: event.data.error || '未自播放器或網頁介面索取到字幕資料' });
+        return;
+      }
+
+      if (event.data.formatted) {
+        const formatted = event.data.formatted;
+        try {
+          navigator.clipboard.writeText(formatted).catch(() => {});
+        } catch (e) {}
+        resolve({ success: true, transcript: formatted, wordCount: formatted.length });
         return;
       }
 
