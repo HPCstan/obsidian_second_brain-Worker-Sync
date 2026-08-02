@@ -1,11 +1,12 @@
 // content-main.js — 運行在 YouTube 頁面的 MAIN world
-// 與影片播放器實體互動，提取字幕下載鏈接並帶上 Cookie 下載，隨後傳送回 ISOLATED world
+// 與影片播放器實體及全域變數深度對接，抓取 JSON3/XML 字幕下載線路並帶上 Cookie 請求，完備診斷
 
 window.addEventListener('message', async (event) => {
   if (!event.data || event.data.type !== 'OBSIDIAN_GET_TRANSCRIPT') return;
 
   try {
     let tracks = null;
+    let tryMethodsLog = [];
 
     // 1. 從 live 的 YouTube 播放器元件呼叫 API
     try {
@@ -14,16 +15,24 @@ window.addEventListener('message', async (event) => {
         const response = player.getPlayerResponse();
         if (response && response.captions) {
           tracks = response.captions.playerCaptionsTracklistRenderer?.captionTracks;
+          if (tracks && tracks.length) tryMethodsLog.push("movie_player (成功)");
+        } else {
+          tryMethodsLog.push("movie_player (無 captions)");
         }
+      } else {
+        tryMethodsLog.push("movie_player (未尋獲播放器物件)");
       }
     } catch (e) {
-      console.warn("getPlayerResponse failed:", e);
+      tryMethodsLog.push("movie_player 錯誤");
     }
 
     // 2. 備用：從 ytInitialPlayerResponse 取得
     if (!tracks || !tracks.length) {
       if (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.captions) {
         tracks = window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer?.captionTracks;
+        if (tracks && tracks.length) tryMethodsLog.push("ytInitialPlayerResponse (成功)");
+      } else {
+        tryMethodsLog.push("ytInitialPlayerResponse (無字幕)");
       }
     }
 
@@ -33,12 +42,31 @@ window.addEventListener('message', async (event) => {
         const args = window.ytplayer.config.args;
         if (args && args.raw_player_response && args.raw_player_response.captions) {
           tracks = args.raw_player_response.captions.playerCaptionsTracklistRenderer?.captionTracks;
+          if (tracks && tracks.length) tryMethodsLog.push("ytplayer.config (成功)");
         }
       } catch (e) {}
     }
 
+    // 4. 備用：從 DOM script 標籤原始碼尋找
     if (!tracks || !tracks.length) {
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: '此影片未提供授權字幕或 API 中未含 captionTracks' });
+      const scripts = document.querySelectorAll('script');
+      for (const s of scripts) {
+        const txt = s.textContent || '';
+        if (!txt.includes('captionTracks')) continue;
+        const match = txt.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])\s*,\s*"/);
+        if (match && match[1]) {
+          try { tracks = JSON.parse(match[1]); } catch (e) {}
+          if (tracks && tracks.length) {
+            tryMethodsLog.push("DOM scripts (成功)");
+            break;
+          }
+        }
+      }
+    }
+
+    if (!tracks || !tracks.length) {
+      const detail = tryMethodsLog.length ? `(已嘗試: ${tryMethodsLog.join(', ')})` : '';
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: `於頁面變數中未見 captionTracks 欄位 ${detail}` });
       return;
     }
 
@@ -49,7 +77,7 @@ window.addEventListener('message', async (event) => {
       tracks[0];
 
     if (!selectedTrack || !selectedTrack.baseUrl) {
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: '無法自字幕軌道中取得下載鏈接 (baseUrl 為空)' });
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: '自 captionTracks 解析成功，但該軌道中毫無 baseUrl 連結' });
       return;
     }
 
@@ -69,10 +97,10 @@ window.addEventListener('message', async (event) => {
       if (res.ok) {
         rawText = await res.text();
       } else {
-        errReason = `JSON3 接口 HTTP 狀態碼 ${res.status}`;
+        errReason = `JSON3 下載失敗 (HTTP ${res.status})`;
       }
     } catch (e) {
-      errReason = e.message;
+      errReason = `JSON3 網路請求失敗 (${e.message})`;
     }
 
     // 如果 JSON3 下載異常或回傳非 JSON，改打 XML 原生接口
@@ -86,21 +114,21 @@ window.addEventListener('message', async (event) => {
           rawText = await xmlRes.text();
           errReason = null;
         } else {
-          errReason = `XML 與 JSON3 接口皆遭到阻擋 (HTTP ${xmlRes.status})`;
+          errReason = `XML 與 JSON3 下載皆失敗 (HTTP ${xmlRes.status})`;
         }
       } catch (e) {
-        errReason = `連線 YouTube 字幕線路逾時 (${e.message})`;
+        errReason = `連線 YouTube 字幕線路逾時或受阻 (${e.message})`;
       }
     }
     clearTimeout(timeoutId);
 
     if (!rawText || (!rawText.trim().startsWith('{') && !rawText.trim().startsWith('<'))) {
-      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: errReason || '下載之字幕內容長度不符或非 JSON/XML 結構' });
+      window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: errReason || '下載內容不符合 JSON/XML 結構' });
       return;
     }
 
     window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: true, rawData: rawText, langName });
   } catch (e) {
-    window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: `提取腳本嚴重崩潰 (${e.message})` });
+    window.postMessage({ type: 'OBSIDIAN_TRANSCRIPT_RESULT', success: false, error: `提取腳本崩潰 (${e.message})` });
   }
 });

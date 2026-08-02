@@ -144,7 +144,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string> {
   }
 }
 
-async function processYouTubeArticle(env: Env, url: string, videoId: string, chatId: number, browserTranscript?: string): Promise<void> {
+async function processYouTubeArticle(env: Env, url: string, videoId: string, chatId: number, browserTranscript?: string, browserError?: string): Promise<void> {
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
     const res = await fetch(oembedUrl);
@@ -162,9 +162,18 @@ async function processYouTubeArticle(env: Env, url: string, videoId: string, cha
       if (data.thumbnail_url) thumbnailUrl = data.thumbnail_url;
     }
     
-    // If the browser extension already extracted the full transcript using local session credentials, use it!
-    // Otherwise fall back to server-side extraction.
-    const transcriptText = browserTranscript ? browserTranscript : await fetchYouTubeTranscript(videoId);
+    let transcriptText = browserTranscript;
+    let subtitleStatus = "✅ 全文帶時間軸字幕已完好匯入";
+    if (!transcriptText) {
+      const serverFallback = await fetchYouTubeTranscript(videoId);
+      if (serverFallback && !serverFallback.includes("ℹ️ *")) {
+        transcriptText = serverFallback;
+      } else {
+        const errDesc = browserError || "未能自瀏覽器成功交接資料 (未及時接收或遭安全性設定阻斷)";
+        subtitleStatus = `⚠️ 此次未成功含帶字幕 (診斷報告: ${errDesc})`;
+        transcriptText = `> ⚠️ **字幕提取失敗診斷報告**\n> - **Chrome 套件層狀態**：${errDesc}\n> - **Cloudflare 伺服器層狀態**：${serverFallback.replace("> ℹ️ *", "").replace("*", "")}`;
+      }
+    }
     
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
@@ -205,7 +214,7 @@ ${transcriptText}
 `;
 
     const savedPath = await saveToGitHub(env, filename, content);
-    await sendMessage(env, chatId, `已成功存入 YouTube 影片：\`${savedPath}\``);
+    await sendMessage(env, chatId, `已成功存入 YouTube 影片：\`${savedPath}\`\n💬 字幕狀況：${subtitleStatus}`);
   } catch (error: any) {
     console.error('YouTube process error:', error);
     await sendMessage(env, chatId, `YouTube 影片儲存失敗：${error.message || error}`);

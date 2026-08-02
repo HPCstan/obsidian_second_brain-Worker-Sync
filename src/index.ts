@@ -88,13 +88,14 @@ export default {
            return new Response('ADMIN_CHAT_ID not configured', { status: 500 });
         }
 
-        // Perform long-running task in background
+        const browserError = body.browserError;
+
         if (imageBase64) {
           ctx.waitUntil(processBase64Image(env, imageBase64, mimeType, chatId));
         } else if (text) {
           ctx.waitUntil(processQuickNote(env, text, chatId));
         } else if (articleUrl) {
-          ctx.waitUntil(processArticle(env, articleUrl, chatId, transcript));
+          ctx.waitUntil(processArticle(env, articleUrl, chatId, transcript, browserError));
         }
 
         return new Response(JSON.stringify({ success: true }), { 

@@ -86,17 +86,19 @@ async function handleUrlClip(tab) {
     try {
       const response = await Promise.race([
         chrome.tabs.sendMessage(tab.id, { action: 'getTranscript' }),
-        new Promise(resolve => setTimeout(() => resolve({ success: false, error: '等待回覆超時' }), 6000))
+        new Promise(resolve => setTimeout(() => resolve({ success: false, error: '等待回覆超時 (6秒內無應答)' }), 6500))
       ]);
 
       if (response && response.success && response.transcript) {
         payload.transcript = response.transcript;
         statusMessage = `✅ 成功複製 YouTube 字幕 (共 ${response.wordCount} 字) 並同步複製進剪貼簿！已開始同步至 GitHub！`;
       } else {
-        const errDesc = response && response.error ? response.error : '未安裝或尚未刷新頁面';
+        const errDesc = response && response.error ? response.error : '套件尚未能接住訊號 (請重整網頁)';
+        payload.browserError = errDesc;
         statusMessage = `⚠️ 字幕提取失敗 (${errDesc})，即將僅歸檔影片連結至 GitHub。`;
       }
     } catch (e) {
+      payload.browserError = `與該分頁之連繫中斷 (${e.message || e})，請在影片分頁按 重新整理 鍵後測試！`;
       statusMessage = `⚠️ 無法聯繫套件腳本 (${e.message || e})，請重新整理 YouTube 頁面後再按一次！`;
     }
   } else {
