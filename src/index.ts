@@ -67,6 +67,7 @@ export default {
       try {
         const body: any = await request.json();
         const articleUrl = body.url;
+        const transcript = body.transcript;
         const text = body.text;
         const imageBase64 = body.imageBase64;
         const mimeType = body.mimeType || 'image/png';
@@ -93,7 +94,7 @@ export default {
         } else if (text) {
           ctx.waitUntil(processQuickNote(env, text, chatId));
         } else if (articleUrl) {
-          ctx.waitUntil(processArticle(env, articleUrl, chatId));
+          ctx.waitUntil(processArticle(env, articleUrl, chatId, transcript));
         }
 
         return new Response(JSON.stringify({ success: true }), { 

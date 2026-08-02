@@ -144,7 +144,7 @@ async function fetchYouTubeTranscript(videoId: string): Promise<string> {
   }
 }
 
-async function processYouTubeArticle(env: Env, url: string, videoId: string, chatId: number): Promise<void> {
+async function processYouTubeArticle(env: Env, url: string, videoId: string, chatId: number, browserTranscript?: string): Promise<void> {
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
     const res = await fetch(oembedUrl);
@@ -162,8 +162,9 @@ async function processYouTubeArticle(env: Env, url: string, videoId: string, cha
       if (data.thumbnail_url) thumbnailUrl = data.thumbnail_url;
     }
     
-    // Simultaneously fetch the video transcript subtitles!
-    const transcriptText = await fetchYouTubeTranscript(videoId);
+    // If the browser extension already extracted the full transcript using local session credentials, use it!
+    // Otherwise fall back to server-side extraction.
+    const transcriptText = browserTranscript ? browserTranscript : await fetchYouTubeTranscript(videoId);
     
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
@@ -240,11 +241,11 @@ function cleanArticleContent(content: string): string {
   return cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export async function processArticle(env: Env, url: string, chatId: number): Promise<void> {
+export async function processArticle(env: Env, url: string, chatId: number, browserTranscript?: string): Promise<void> {
   try {
     const youtubeId = getYouTubeVideoId(url);
     if (youtubeId) {
-      await processYouTubeArticle(env, url, youtubeId, chatId);
+      await processYouTubeArticle(env, url, youtubeId, chatId, browserTranscript);
       return;
     }
 

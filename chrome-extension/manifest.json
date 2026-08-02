@@ -6,7 +6,8 @@
   "permissions": [
     "activeTab",
     "notifications",
-    "contextMenus"
+    "contextMenus",
+    "scripting"
   ],
   "action": {
     "default_title": "Clip to Obsidian"
