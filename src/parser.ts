@@ -92,6 +92,28 @@ tags:
   }
 }
 
+function cleanArticleContent(content: string): string {
+  const lines = content.split('\n');
+  const cleanedLines: string[] = [];
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // Filter out common advertisement, newsletter, and social sharing boilerplate slogans
+    if (/^(廣告|Advertisement|Share on|分享至|分享到|分享：|追蹤我們|點此下載|推薦閱讀|延伸閱讀|相關文章|相關報導|按讚追蹤|加入 LINE|訂閱電子報)[:：\s]?$/i.test(trimmed)) {
+      continue;
+    }
+    // Filter out lines that are purely social sharing or junk links without narrative content
+    if (/^(\s*\[(?:Facebook|Twitter|LINE|Instagram|Telegram|Email|WeChat|WhatsApp|分享|按讚|追蹤|訂閱|複製連結|Share)[^\]]*\]\([^\)]+\)\s*)+$/i.test(trimmed)) {
+      continue;
+    }
+    cleanedLines.push(line);
+  }
+  
+  // Remove multiple consecutive empty lines down to a max of two
+  return cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export async function processArticle(env: Env, url: string, chatId: number): Promise<void> {
   try {
     const youtubeId = getYouTubeVideoId(url);
@@ -103,7 +125,8 @@ export async function processArticle(env: Env, url: string, chatId: number): Pro
     // 1. Fetch from Jina Reader API
     const jinaUrl = `https://r.jina.ai/${url}`;
     const headers: Record<string, string> = {
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'X-Remove-Selector': 'header, nav, footer, aside, .ads, .ad, .advertisement, .sidebar, .comments, .related-posts, .social-share, [role="navigation"], [role="banner"], [role="contentinfo"], #sidebar, #footer, .share-buttons, .ad-box, iframe:not([src*="youtube"])'
     };
     if (env.JINA_API_KEY) {
       headers['Authorization'] = `Bearer ${env.JINA_API_KEY}`;
@@ -143,7 +166,7 @@ export async function processArticle(env: Env, url: string, chatId: number): Pro
     const data = resJson.data || resJson; // Fallback in case of different format
     
     let title = data.title || 'Untitled';
-    let content = data.content || '';
+    let content = cleanArticleContent(data.content || '');
     let author = data.author || '';
 
     // Append original link at the end

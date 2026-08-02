@@ -200,8 +200,9 @@ export default {
 
       try {
         const formData = await request.formData();
-        const sharedUrl = formData.get('url') as string;
-        const sharedText = formData.get('text') as string;
+        const sharedUrl = (formData.get('url') as string || '').trim();
+        const sharedText = (formData.get('text') as string || '').trim();
+        const sharedTitle = (formData.get('title') as string || '').trim();
         const media = formData.get('media') as File | null;
 
         const chatId = Number(env.ADMIN_CHAT_ID);
@@ -210,13 +211,45 @@ export default {
           if (media && media.size > 0) {
             ctx.waitUntil(processImage(env, media, chatId));
           } else {
-            const textToProcess = sharedUrl || sharedText;
-            if (textToProcess) {
-              const urlMatch = textToProcess.match(/(https?:\/\/[^\s]+)/);
-              if (urlMatch) {
-                ctx.waitUntil(processArticle(env, urlMatch[1], chatId));
+            let isNote = false;
+            let noteContent = '';
+            
+            // Check if user selected text on a webpage or typed text in an input box
+            if (sharedText) {
+              // Strip URLs to see if there is actual descriptive/highlighted text
+              const textWithoutUrls = sharedText.replace(/https?:\/\/[^\s]+/g, '').trim();
+              if (sharedUrl && textWithoutUrls.length > 0 && textWithoutUrls !== sharedTitle.trim() && textWithoutUrls !== sharedUrl) {
+                // User highlighted text on a webpage while URL was simultaneously provided by browser
+                isNote = true;
+                noteContent = `> ${sharedText.replace(/\n/g, '\n> ')}\n\n---\n來源：[${sharedTitle || sharedUrl}](${sharedUrl})`;
+              } else if (!sharedUrl && !sharedText.match(/https?:\/\/[^\s]+/)) {
+                // Pure text shared without any URL (e.g. from Google Search box or text editor)
+                isNote = true;
+                noteContent = sharedText;
+              } else if (!sharedUrl && textWithoutUrls.length > 20) {
+                // Long text containing a link, treat as a quick note / reflection
+                isNote = true;
+                noteContent = sharedText;
+              }
+            } else if (!sharedText && !sharedUrl && sharedTitle) {
+              // Only title field was populated by Android share menu (happens in search boxes)
+              isNote = true;
+              noteContent = sharedTitle;
+            }
+
+            if (isNote && noteContent) {
+              ctx.waitUntil(processQuickNote(env, noteContent, chatId));
+            } else {
+              // Otherwise, extract target URL to scrape as an article
+              const potentialUrl = sharedUrl || (sharedText.match(/(https?:\/\/[^\s]+)/)?.[1]) || (sharedTitle.match(/(https?:\/\/[^\s]+)/)?.[1]);
+              if (potentialUrl) {
+                ctx.waitUntil(processArticle(env, potentialUrl, chatId));
               } else {
-                ctx.waitUntil(processQuickNote(env, textToProcess, chatId));
+                // Guaranteed fallback: save whatever text/title exists as a QuickNote so nothing is ever lost!
+                const fallbackText = [sharedTitle, sharedText].filter(Boolean).join('\n').trim();
+                if (fallbackText) {
+                  ctx.waitUntil(processQuickNote(env, fallbackText, chatId));
+                }
               }
             }
           }
