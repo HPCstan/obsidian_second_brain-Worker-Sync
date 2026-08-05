@@ -130,9 +130,107 @@ function formatJson3Transcript(rawJson: string, langName: string): string | null
 
 export async function fetchYouTubeTranscript(videoId: string, env?: Env): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  const cookieStatus = env?.YOUTUBE_COOKIE ? `已配置(${env.YOUTUBE_COOKIE.length}字元)` : '未設定(NULL)';
+  const debugLogs: string[] = [];
 
   try {
+    const apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
+    // 多重客戶端與驗證組合矩陣 (同時覆蓋匿名與 Cookie、VR/Android/iOS/TV 終端)
+    const clientMatrix = [
+      { name: 'ANDROID_VR_ANONYMOUS', clientName: 'ANDROID_VR', clientVersion: '1.65.10', clientType: '28', ua: 'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip', useCookie: false },
+      { name: 'ANDROID_ANONYMOUS', clientName: 'ANDROID', clientVersion: '19.29.37', clientType: '3', ua: 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; tw) gzip', useCookie: false },
+      { name: 'IOS_ANONYMOUS', clientName: 'IOS', clientVersion: '19.29.1', clientType: '5', ua: 'com.google.ios.youtube/19.29.1 (iPhone15,2; U; CPU iOS 17_5_1 like Mac OS X; tw)', useCookie: false },
+      { name: 'TV_ANONYMOUS', clientName: 'TVHTML5', clientVersion: '7.20240424.00.00', clientType: '7', ua: 'Mozilla/5.0 (CrKey armv7l 1.5.160000) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', useCookie: false },
+      { name: 'ANDROID_VR_COOKIE', clientName: 'ANDROID_VR', clientVersion: '1.65.10', clientType: '28', ua: 'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip', useCookie: true },
+      { name: 'ANDROID_COOKIE', clientName: 'ANDROID', clientVersion: '19.29.37', clientType: '3', ua: 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; tw) gzip', useCookie: true }
+    ];
+
+    for (const profile of clientMatrix) {
+      if (profile.useCookie && !env?.YOUTUBE_COOKIE) continue;
+
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'User-Agent': profile.ua,
+          'X-Youtube-Client-Name': profile.clientType,
+          'X-Youtube-Client-Version': profile.clientVersion,
+          'Origin': 'https://www.youtube.com',
+          'X-Origin': 'https://www.youtube.com'
+        };
+
+        if (profile.useCookie && env?.YOUTUBE_COOKIE) {
+          headers['Cookie'] = env.YOUTUBE_COOKIE;
+          const authHash = await generateSapisidHash(env.YOUTUBE_COOKIE);
+          if (authHash) headers['Authorization'] = authHash;
+        }
+
+        const body = {
+          context: {
+            client: {
+              clientName: profile.clientName,
+              clientVersion: profile.clientVersion,
+              userAgent: profile.ua,
+              hl: "zh-TW",
+              gl: "TW",
+              timeZone: "Asia/Taipei",
+              utcOffsetMinutes: 480
+            }
+          },
+          videoId: videoId,
+          playbackContext: { contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" } },
+          contentCheckOk: true,
+          racyCheckOk: true
+        };
+
+        const res = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+
+        if (!res.ok) {
+          debugLogs.push(`[${profile.name}] HTTP ${res.status}`);
+          continue;
+        }
+
+        const data: any = await res.json();
+        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (Array.isArray(tracks) && tracks.length > 0) {
+          let selectedTrack = tracks.find((t: any) => t.languageCode === 'zh-TW' || t.languageCode === 'zh-Hant' || t.languageCode === 'zh') ||
+                              tracks.find((t: any) => t.languageCode?.startsWith('en')) ||
+                              tracks[0];
+          const langName = selectedTrack.name?.simpleText || selectedTrack.languageCode || '中文字幕';
+          
+          // 下載字幕內容
+          const subRes = await fetch(`${selectedTrack.baseUrl}&fmt=vtt`, { headers: headers });
+          if (subRes.ok) {
+            const subText = await subRes.text();
+            if (subText.trim().startsWith('{')) {
+              const resJson = formatJson3Transcript(subText, `${langName} (透過 ${profile.name} 取得)`);
+              if (resJson) return resJson;
+            } else if (subText.includes('<timedtext') || subText.includes('<p t=')) {
+              const resXml = formatXmlTranscript(subText, `${langName} (透過 ${profile.name} 取得)`);
+              if (resXml) return resXml;
+            }
+            debugLogs.push(`[${profile.name}] 有字幕軌但下載格式未知(非JSON/XML)`);
+          } else {
+            debugLogs.push(`[${profile.name}] 字幕線路 HTTP ${subRes.status}`);
+          }
+        } else {
+          const status = data?.playabilityStatus?.status || 'UNKNOWN';
+          const reason = data?.playabilityStatus?.reason || '無 captionTracks';
+          debugLogs.push(`[${profile.name}] ${status} (${reason})`);
+        }
+      } catch (e: any) {
+        debugLogs.push(`[${profile.name}] 例外: ${e.message || e}`);
+      }
+    }
+
+    // 備援：原版 HTML 網頁 DOM 抓取
     const pageHeaders: Record<string, string> = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
       'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7'
@@ -147,94 +245,18 @@ export async function fetchYouTubeTranscript(videoId: string, env?: Env): Promis
     });
     
     if (!pageRes.ok) {
-      return '> ℹ️ *無法取得影片網頁資料或遭到 YouTube 防衛安全驗證封阻。*';
+      debugLogs.push(`[HTML_SCRAPE] HTTP ${pageRes.status}`);
+      return `> ℹ️ *未能於 Cloudflare 伺服器側抓取字幕*\n> 🩺 **全客戶端排查紀錄**：\n> - **YouTube Cookie 狀態**：${cookieStatus}\n> - **各接口輪詢分析**：\n${debugLogs.map(l => `>   - ${l}`).join('\n')}`;
     }
+
     const html = await pageRes.text();
-    const apiKeyMatch = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
-    const apiKey = (apiKeyMatch && apiKeyMatch[1]) ? apiKeyMatch[1] : 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-    const visitorMatch = html.match(/"visitorData":"([^"]+)"/) || html.match(/"X-Goog-Visitor-Id":"([^"]+)"/);
-    const visitorId = (visitorMatch && visitorMatch[1]) ? visitorMatch[1] : undefined;
-
-    // 優先：使用 Oculus Quest 3 (ANDROID_VR) API 繞過伺服器端 Token 驗證
-    let tracks: any[] = [];
-    try {
-      const vrHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
-        'X-Youtube-Client-Name': '28',
-        'X-Youtube-Client-Version': '1.65.10',
-        'Origin': 'https://www.youtube.com',
-        'X-Origin': 'https://www.youtube.com'
-      };
-      if (env?.YOUTUBE_COOKIE) {
-        vrHeaders['Cookie'] = env.YOUTUBE_COOKIE;
-        const authHash = await generateSapisidHash(env.YOUTUBE_COOKIE);
-        if (authHash) vrHeaders['Authorization'] = authHash;
-      }
-      if (visitorId) vrHeaders['X-Goog-Visitor-Id'] = visitorId;
-
-      const vrBody = {
-        context: {
-          client: {
-            clientName: "ANDROID_VR",
-            clientVersion: "1.65.10",
-            deviceMake: "Oculus",
-            deviceModel: "Quest 3",
-            androidSdkVersion: 32,
-            userAgent: vrHeaders['User-Agent'],
-            osName: "Android",
-            osVersion: "12L",
-            hl: "zh-TW",
-            gl: "TW",
-            timeZone: "Asia/Taipei",
-            utcOffsetMinutes: 480
-          }
-        },
-        videoId: videoId,
-        playbackContext: { contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" } },
-        contentCheckOk: true,
-        racyCheckOk: true
-      };
-
-      const playerRes = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`, {
-        method: 'POST',
-        headers: vrHeaders,
-        body: JSON.stringify(vrBody),
-        signal: controller.signal
-      });
-
-      if (playerRes.ok) {
-        const playerData: any = await playerRes.json();
-        const vrTracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        if (Array.isArray(vrTracks) && vrTracks.length > 0) {
-          tracks = vrTracks;
-          let selectedTrack = tracks.find((t: any) => t.languageCode === 'zh-TW' || t.languageCode === 'zh-Hant' || t.languageCode === 'zh') ||
-                              tracks.find((t: any) => t.languageCode?.startsWith('en')) ||
-                              tracks[0];
-          const langName = selectedTrack.name?.simpleText || selectedTrack.languageCode || '中文字幕';
-          const subRes = await fetch(`${selectedTrack.baseUrl}&fmt=vtt`, { headers: vrHeaders });
-          if (subRes.ok) {
-            const subText = await subRes.text();
-            if (subText.trim().startsWith('{')) {
-              const resJson = formatJson3Transcript(subText, langName);
-              if (resJson) return resJson;
-            } else if (subText.includes('<timedtext') || subText.includes('<p t=')) {
-              const resXml = formatXmlTranscript(subText, langName);
-              if (resXml) return resXml;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Oculus VR API attempt failed, falling back to standard scraping', e);
-    }
-
-    // 備援：原版網頁 DOM Captions 解析
     const match = html.match(/"captionTracks":\s*(\[[^\[\]]+\])/);
     if (!match || !match[1]) {
-      return '> ℹ️ *此影片未提供封閉字幕或遭到 YouTube 防機器人檢查（Bot Challenge）阻截雲端訪問。您可直接於上方播放器點選 CC 字幕對照觀賞！*';
+      debugLogs.push('[HTML_SCRAPE] 網頁代碼中無 captionTracks JSON 字串');
+      return `> ℹ️ *未能於 Cloudflare 伺服器側抓取字幕*\n> 🩺 **全客戶端排查紀錄**：\n> - **YouTube Cookie 狀態**：${cookieStatus}\n> - **各接口輪詢分析**：\n${debugLogs.map(l => `>   - ${l}`).join('\n')}`;
     }
     
+    let tracks: any[] = [];
     try {
       tracks = JSON.parse(match[1]);
     } catch {
@@ -263,17 +285,18 @@ export async function fetchYouTubeTranscript(videoId: string, env?: Env): Promis
     }).finally(() => clearTimeout(transTimeout));
     
     if (!transcriptRes.ok) {
-      return '> ℹ️ *下載字幕資料時遭遇 HTTP 拒止。*';
+      debugLogs.push(`[HTML_SCRAPE] 下載 URL HTTP ${transcriptRes.status}`);
+      return `> ℹ️ *未能於 Cloudflare 伺服器側抓取字幕*\n> 🩺 **全客戶端排查紀錄**：\n> - **YouTube Cookie 狀態**：${cookieStatus}\n> - **各接口輪詢分析**：\n${debugLogs.map(l => `>   - ${l}`).join('\n')}`;
     }
     
     const rawText = await transcriptRes.text();
     const formatted = formatJson3Transcript(rawText, langName);
     if (formatted) return formatted;
 
-    return '> ℹ️ *因 YouTube 伺服器端之金鑰簽證 (PoToken / Cookie 隔離) 防衛驗證，雲端處理中樞無法自該接口下線全文檔案。您可以在前方 iframe 播放器中直接點啟官方 CC 字幕邊播邊賞！*';
+    return `> ℹ️ *未能於 Cloudflare 伺服器側抓取字幕*\n> 🩺 **全客戶端排查紀錄**：\n> - **YouTube Cookie 狀態**：${cookieStatus}\n> - **各接口輪詢分析**：\n${debugLogs.map(l => `>   - ${l}`).join('\n')}\n> 💡 *說明：因 Cloudflare 位於海外雲端中心，部分帳戶與影片受到 Google PoToken 隔離與登入位置驗證挑戰。您仍可透過上方影片播放器觀看官方 CC 字幕！*`;
   } catch (err: any) {
     console.warn('Transcript fetch fallback:', err);
-    return `> ℹ️ *因為 YouTube 抗爬蟲安全審查或連線逾時，此次未一併抓入字幕台詞。下方影片本體已為您完整內嵌！*`;
+    return `> ℹ️ *因為 YouTube 抗爬蟲安全審查或連線逾時，此次未一併抓入字幕台詞。*\n> 🩺 **診斷報告**：Cookie=${cookieStatus}, 歷史對話：${debugLogs.join('; ')}, 例外：${err.message || err}`;
   } finally {
     clearTimeout(timeout);
   }
