@@ -1,6 +1,6 @@
 import { Env } from './env';
 import { sendMessage } from './telegram';
-import { processArticle, processQuickNote, processImage, processBase64Image } from './parser';
+import { processArticle, processQuickNote, processImage, processBase64Image, fetchYouTubeTranscript } from './parser';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -9,6 +9,16 @@ export default {
     // Health check endpoint
     if (request.method === 'GET' && url.pathname === '/health') {
       return new Response('OK', { status: 200 });
+    }
+
+    // Test endpoint for YouTube VR Subtitle extraction
+    if (request.method === 'GET' && url.pathname === '/test-yt') {
+      const videoId = url.searchParams.get('v') || '_hAi3xjTyTI';
+      const result = await fetchYouTubeTranscript(videoId, env);
+      return new Response(result, {
+        status: 200,
+        headers: { 'Content-Type': 'text/markdown; charset=utf-8' }
+      });
     }
 
     // Telegram webhook endpoint

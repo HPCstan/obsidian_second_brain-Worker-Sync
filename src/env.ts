@@ -9,4 +9,5 @@ export interface Env {
   JINA_API_KEY?: string;
   ADMIN_CHAT_ID?: string;
   BROWSER_SECRET?: string;
+  YOUTUBE_COOKIE?: string;
 }
