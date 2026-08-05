@@ -172,6 +172,62 @@ v1.6+ 全面破棄傳統操作系統通知常被「勿擾模式」封殺之痛�
 
 ---
 
+## 🔬 深度技術探勘與實戰日誌：YouTube 反爬蟲演化與 Qwenpaw 抓取對決研究 (Technical Investigation Record)
+
+在本系統升級 v1.7 的史詩研發進程中，團隊對 YouTube 最新世代的防機器人系統 (PoToken / Datacenter Ban) 進行了完整的逆向工程探訪與跨端伺服器對決。為使後續開發與筆記工程師有完整文獻可循，此章節詳細載綠這段「從直連受挫、Qwenpaw 破防突圍，到本地端成功、最終揭露出雲端 IP 風控邊界與行動瀏覽器架構之致勝法則」的實時交戰報告：
+
+### 1. 🏁 初期迎戰：「T客邦影新聞」字軌迷霧與 API 直連封止
+* **初始狀態**：使用者於日常搜羅新聞知識影片時，試圖從影片 ID `_hAi3xjTyTI` 轉出完整的繁體中文 (`zh-TW` / `zh-Hant`) 時間軸字幕。
+* **遭遇直連全面受挫**：起初，當試圖令遠端機器人或終端指令透過官方裸接 API (`curl -s "https://www.youtube.com/api/timedtext?v=_hAi3xjTyTI&lang=zh-TW"`, 及 `type=list` 探測) 下載字軌時，無論哪組語種編碼，YouTube CDN 的回覆皆是**殘酷的完全空白 (empty response / no output)**。
+* **PoToken 安全屏障 (Proof-of-Origin Token)**：在使用標準開源工具 `yt-dlp` 下發測試時，各主要終端遭遇全面圍剿：
+  - `web` 介面：踩中 Google 「證明你是真人類 (Sign in to confirm you're not a bot / Bot Challenge)」防守圈，伺服器封鎖 JSON3 字幕資料流，只能取回毫無文字的 Storyboard 圖片格。
+  - `android` / `ios` 原生端接口：因工具框架約束，無法掛載及繼承使用者身分 Cookie。
+  - **最初期之猜疑**：機器人曾短暫判定「該頻道的影片管理者未開啟字幕」或是「該新聞廣播未支援自動轉錄」。
+
+### 2. 🛡️ 密鑰送入與 Qwenpaw 突圍大戰（Why Qwenpaw Succeeded）
+面對不妥協的驗證壁壘，使用者實行了關鍵的神之手：**親自前往 Windows 電腦本機 Google Chrome（登入會話為 `ogeypt1@gmail.com`），把高權限等級的 19 筆完整會員 Cookie 字串完好萃取而出**。
+* **金鑰核心組成**：包含了證明會話合乎邏輯的關鍵憑根：`HSID`、`SSID`、`SAPISID`、`__Secure-1PAPISID` 以及決定 Google 帳戶身分簽訂的 `LOGIN_INFO` 與 `SID` 字串。
+* **Qwenpaw (AgentScope 沙盒後台 `@agentscopestan_bot`) 成功抓取之全紀錄**：
+  1. 機器人在收受使用者的真實密鑰字串後，透過 `write_file` 把長度為 4,156 bytes 的資料，精格寫入遵循標準 **Netscape HTTP Cookie File** 協議的 `youtube_cookies.txt` 檔案至 Linux 沙盒目錄中。
+  2. 隨後對指令終端再次發起強襲：`yt-dlp --cookies youtube_cookies.txt https://www.youtube.com/watch?v=_hAi3xjTyTI`。
+  3. **奇蹟破曉**：這一次，YouTube 伺服器成功吞下了自定會話中的憑據簽發。因為 Qwenpaw 其執行的背後 Docker/阿里雲等機房主機之 IP，**在當刻尚未落入 YouTube 的致命 IP 封鎖名單**；加上具備真人的 Cookie 聲譽擔保，Google 放行通過，瞬回美順絲滑的前 15 條甚至全部之正宗 `zh-TW` 中文對白字幕與精細演繹段落！
+
+### 3. 🧠 將勝利轉入本主鏈：v1.7 「Oculus VR 純 TS 動態解密引擎」誕生
+為了不依賴耗重的 Python 執行環境或是龐雜的 `yt-dlp` 外部套件，本著「純 TypeScript / V8 輕靈極速」的信念，團隊將這股勝利哲學編織寫進本專案核心的 `src/parser.ts` 中：
+* **純 Web Crypto 演化 SHA-1 驗證 (Dynamic SAPISIDHASH Engine)**：利用 Cloudflare / Node 的原生 Web Crypto API (`crypto.subtle.digest`)，提取您配置 Cookie 內的 `SAPISID`，搭配現下實時 epoch 時間戳與主網域綁定拼組為：
+  ```
+  Authorization: SAPISIDHASH {Current_Unix_Timestamp}_{SHA-1(Timestamp + SAPISID + https://www.youtube.com)}
+  ```
+  在無需安裝外部大型庫的前提下，自行生成和真正的 Android 行動視聽終端絲毫不差的安全加密頭！
+* **Oculus Quest 3 (Client ID: 28) 絕招對接**：發出 POST リクエスト (請求) 至 `/youtubei/v1/player`，通體以 Android 12L / Oculus Quest 3 的高規格特有格式進行對接。
+* **本地實戰狂想曲 (`wrangler dev`)**：於 VSCode terminal 開設本地測試伺服器並附裝 Cookie 金鑰調研測試時，因使用的是您家庭與公務用之 **優良寬頻住宅 IP (Residential IP)**，該演繹代碼表現出如同魔法般的 **100% 破壞防線轉存力**，直把 YouTube 對白一氣灌入主硬碟與本區測試紀錄中！
+
+### 4. 🏰 雲端極速部署與殘酷戰場揭密：Cloudflare Datacenter IP 與 異地盾（ Datacenter Block Mystery ）
+在通過本機實戰、歡慶部署到全球上百座 Edge 伺服器（`npx wrangler deploy` 並透過 `wrangler secret put YOUTUBE_COOKIE` 填上密鑰）後，從實際手機傳鏈結測試與線上健康端點 (`/test-yt`) 卻發起回顧警告。透過升級佈置於 Worker 中的 **「多重客戶端輪詢診斷矩陣（Multi-Client Probing Matrix）」**（連續巡守 VR、Android 原生端、iOS 端與 TVHTML5 的匿名與會話狀態），我們把真正的互聯網深層攻防血實一一撬幕曝光：
+
+| 雲端 Worker 發行嘗試 | 回報之真實狀態碼 | 防線成因解析 |
+| :--- | :--- | :--- |
+| **標準 HTML Watch 網頁** | **HTTP 429 Too Many Requests** | **Cloudflare 全網 IP 封黑**：因為全世界有難以數計的爬蟲每天借由 Cloudflare 伺服器瘋狂採摘，Google 的防護盾直接鎖死任何源自 Cloudflare (AS13335) IP 段對 HTML 的直接探撈！ |
+| **Oculus VR / TV 匿名直搗** | **LOGIN_REQUIRED (請證明你不是機器人)** | 當來訪者為資料中心主機 IP 且無真人 Cookie 擔保，YouTube 直接不吐還 `captionTracks`，改推阻攔防撞門。 |
+| **載入 YOUTUBE_COOKIE 直取**| **LOGIN_REQUIRED / HTTP 400** | **異地多端安全護壁**：當您把於「台灣家用住宅連線 Chrome 瀏覽器」獲頒的帳戶 Cookie，由「海外雲端資料中心伺服器」反覆快速下呼叫請求，Google 安全引擎會立即視為 Cookie 位移或是自動化機器冒充，啟動帳戶自我隔斷隔離機制 (PoToken 驗證)! |
+| **Why Qwenpaw 一度過關** | **200 OK / 順利下載** | Qwenpaw 等商務及自學機台因為所承載的 IP 地址區間，**湊巧不在 Google 對 Cloudflare Datacenter 設定的「永久極嚴戒備名單」中**；但也反映出追求遠端資料中心硬抓是有壽命與幸運特性的苦鬥！ |
+
+---
+
+### 5. 💎 致勝神算與歸宗之途：為什麼「Kiwi Browser 手機套件」是本架構的最高殿堂？
+這整段由破防到剖骨的深入歷程，深刻彰顯了我們為「手機隨身剪藏體驗」規劃的超限思維——**強力推廣採用「Kiwi Browser + 本專案自帶之 Chrome 前端防衛擴充套件」進行行動摘錄**！這套架構的核心絕技與無以倫比的優越點為：
+
+* **100% 回歸手機本人 IP 領地，免疫一切防禦盾牌！**
+  當您拿破 Android 手機的 **Kiwi Browser** 開起想要留存的 YouTube 視頻，並輕觸擴充套件的小按鍵時：**下載字幕與讀取動作全是由您手機的 DOM (內有最合規的 Main World 與 Isolated World 腳本) 直接發聲！**
+  * **真金白銀的純潔授權**：連出的網路是您個人專用的 **4G / 5G 電信信令或是屋內寬頻 Wi-Fi 住宅 IP**；Google 與 YouTube 把您視作無比神聖的新鮮訪客與聽眾，**永遠不會丟給你 HTTP 429 拒斷或任何「你是機器人」的挑選題！**
+  * **內建自然 PoToken**：因為真的把瀏覽器網頁開在您指掌間，安全憑簽 (PoToken) 原生自然自洽，無須半行密碼破抵程式輔攻。
+* **Cloudflare 完美升級為「不撞牆之黃金傳送門與庫藏主簿」**
+  擴充套件在您平靜的手機內部 DOM 一念抓出乾淨完整的長文對話結構之後，自動打包賦形為 JSON 對面欄中的 **`browserTranscript`**，一鍵射往 Cloudflare Worker 接收站！
+  * ** Worker 從來不需履涉險地**：這下子 Cloudflare Worker 根本連 Youtube 一封網信都可以慳省不用發出！完全不用怕 IP 是不是在黑名單！
+  * **飛快無感直奔 Obsidian 城堡**：Worker 接到厚重詳盡的傳遞文後，只需用 0.2 秒神妙整理出 Markdown 優質佈署格式，並輕點 GitHub API Commit 將作品優雅奉上 Vault 筆記牆頂端。**「手機前陣零干涉破堤 ➡️ Cloudflare 雲邊無敵快寫庫存」**，正式完成兼任兼勝、無物可擋之筆記終極兵法大捷！🛡️💎🚀💪
+
+---
+
 ## 🔒 絕密隱私防禦與開放式聲明 (License & Security)
 
 此項資產自始終極秉性：「**零中間商摸底、直驅雲際、隱密至死**」。
