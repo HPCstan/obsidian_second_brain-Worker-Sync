@@ -1,86 +1,86 @@
 # Obsidian Knowledge Clipper & Worker Sync (v1.7)
 
-This project is a knowledge collection and synchronization system based on Cloudflare Workers and Chrome Extension V3. It allows users to save web articles, text highlights, YouTube video transcripts, and quick notes directly to a GitHub repository (syncing with Obsidian) via PC browsers, Kiwi Browser (Android), PWA, or a Telegram Bot.
+本專案是一個基於 Cloudflare Workers 與 Chrome Extension V3 的知識採集與同步系統。使用者可透過電腦版瀏覽器、Kiwi Browser (Android)、PWA 或 Telegram Bot，將網頁文章、重點畫線、YouTube 影片字幕及快速筆記，直接儲存至 GitHub 儲存庫（並同步至 Obsidian）。
 
-## 1. System Architecture
+## 1. 系統架構
 
 ```text
-├── chrome-extension/         # V1.6 Chrome Extension (Manifest V3)
-│   ├── manifest.json         # Extension configuration and permissions
-│   ├── background.js         # Service Worker for context menus and Webhook dispatch
-│   ├── content-main.js       # [MAIN World] DOM script for UI interaction and transcript extraction
-│   ├── content.js            # [ISOLATED World] UI script for In-Page Toast notifications and clipboard
-│   └── icons/                # Extension icons
+├── chrome-extension/         # V1.6 Chrome 擴充套件 (Manifest V3)
+│   ├── manifest.json         # 擴充套件設定與權限宣告
+│   ├── background.js         # Service Worker：處理右鍵選單與 Webhook 請求發送
+│   ├── content-main.js       # [MAIN World] DOM 腳本：負責 UI 互動與字幕提取
+│   ├── content.js            # [ISOLATED World] UI 腳本：負責網頁內 Toast 提示與剪貼簿寫入
+│   └── icons/                # 擴充套件圖示
 ├── src/                      # Cloudflare Workers (v1.7)
-│   ├── index.ts              # Entry point: PWA Router, request parsing, diagnostic endpoints
-│   ├── parser.ts             # Content parser: YouTube API extraction, ad removal, payload formatting
-│   ├── github.ts             # GitHub API integration for file commits
-│   ├── telegram.ts           # Telegram Bot Webhook integration
-│   └── env.ts                # Environment variables and type definitions
-├── README.md                 # Project documentation
-├── wrangler.toml             # Cloudflare configuration file
-└── setup-webhook.js          # Telegram webhook registration script
+│   ├── index.ts              # 程式進入點：PWA 路由、請求解析與診斷端點
+│   ├── parser.ts             # 內容解析器：YouTube API 提取、廣告移除與資料格式化
+│   ├── github.ts             # GitHub API 整合，負責檔案 Commit
+│   ├── telegram.ts           # Telegram Bot Webhook 整合
+│   └── env.ts                # 環境變數與型別定義
+├── README.md                 # 專案說明文件
+├── wrangler.toml             # Cloudflare 部署設定檔
+└── setup-webhook.js          # Telegram Webhook 註冊腳本
 ```
 
-## 2. Key Features & Technical Details
+## 2. 核心功能與技術細節
 
-### 2.1 YouTube Transcript Extraction
+### 2.1 YouTube 字幕提取
 
-The system utilizes a two-tier strategy to extract YouTube transcripts, addressing anti-bot mechanisms (e.g., PoToken, IP blocking) implemented by YouTube.
+系統採用雙層策略提取 YouTube 字幕，以應對 YouTube 伺服器端的機器人防護機制（如 PoToken 驗證與 IP 封鎖）。
 
-*   **Frontend DOM Extraction (Primary)**: The Chrome extension extracts transcripts directly from the YouTube page DOM. This method avoids backend IP blocking (HTTP 429) and PoToken verification issues since the request originates from the user's residential IP.
-    *   **UI Automation**: Automatically clicks the "Show Transcript" button using localized selectors (Supports Traditional/Simplified Chinese and English button texts).
-    *   **innerText Parsing (Fallback)**: To handle YouTube's newer `yt-view-model` architecture (Engagement Panels) where standard HTML tags like `<ytd-transcript-segment-renderer>` are removed, the extension parses the visible `innerText` of the panel to extract timestamps and text reliably.
-    *   **Clipboard Integration**: Automatically copies the extracted transcript to the system clipboard upon successful extraction.
-*   **Backend API Fallback (Secondary)**: If DOM extraction fails or the request is sent via Telegram/PWA (without extension context), the Cloudflare Worker attempts to fetch the transcript via the YouTube InnerTube API.
-    *   **Dynamic SAPISIDHASH Generation**: The Worker uses the Web Crypto API (`crypto.subtle.digest`) to generate a valid `SAPISIDHASH` header based on the configured user cookies (`YOUTUBE_COOKIE`).
-    *   **Client Spoofing**: Simulates requests using specific client profiles (e.g., Oculus Quest 3 / `ANDROID_VR`) to bypass certain web-based CAPTCHA requirements.
-    *   **Datacenter IP Limitations**: Note that requests originating from Cloudflare Datacenter IPs may still encounter `HTTP 429` (Too Many Requests) or `LOGIN_REQUIRED` errors due to YouTube's strict server-side blocking of cloud hosting providers.
+*   **前端 DOM 提取（首選方案）**：Chrome 擴充套件直接從 YouTube 網頁的 DOM 結構中提取字幕。此方法因請求來自使用者的真實住宅 IP，可完全避開後端 IP 封鎖 (HTTP 429) 與 PoToken 驗證問題。
+    *   **UI 自動化**：使用多語系選擇器（支援繁/簡體中文與英文）自動尋找並點擊「顯示轉錄稿 / Show Transcript」按鈕。
+    *   **純文字 (innerText) 解析（備用提取）**：為應對 YouTube 採用的新型 `yt-view-model` 架構（該架構移除了標準的 `<ytd-transcript-segment-renderer>` 標籤），擴充套件會直接讀取字幕面板的 `innerText`，並透過正規表達式穩定提取時間戳與文字。
+    *   **剪貼簿整合**：提取成功後，自動將格式化後的字幕複製到系統剪貼簿。
+*   **後端 API 提取（備用方案）**：若 DOM 提取失敗，或請求是經由 Telegram/PWA 發送（無前端擴充套件環境），Cloudflare Worker 會嘗試透過 YouTube InnerTube API 獲取字幕。
+    *   **動態 SAPISIDHASH 生成**：Worker 利用 Web Crypto API (`crypto.subtle.digest`)，結合使用者配置的 Cookie (`YOUTUBE_COOKIE`)，動態生成合法的 `SAPISIDHASH` 驗證標頭。
+    *   **客戶端偽裝**：模擬特定客戶端（例如 Oculus Quest 3 / `ANDROID_VR`）發送請求，以繞過部分網頁版的 CAPTCHA 限制。
+    *   **資料中心 IP 限制**：由於 YouTube 對雲端服務供應商有嚴格的伺服器端阻擋，源自 Cloudflare Datacenter IP 的請求仍可能遭遇 `HTTP 429` (Too Many Requests) 或 `LOGIN_REQUIRED` 錯誤。
 
-### 2.2 Content Processing and Ad Removal
+### 2.2 內容處理與廣告移除
 
-For standard web articles (e.g., news portals), the system implements content filtering to ensure clean Markdown output:
-*   **DOM Node Removal**: Utilizes `X-Remove-Selector` headers during Jina Reader parsing to strip navigation menus and sharing widgets.
-*   **Keyword Truncation**: Scans the text and truncates content following common recommendation feed headers (e.g., "延伸閱讀", "推薦新聞", "其他人也在看") to prevent appending unrelated articles to the note.
+針對一般網頁文章（如新聞網站），系統內建內容過濾機制以確保 Markdown 輸出的純淨度：
+*   **DOM 節點移除**：在透過 Jina Reader 解析時，傳遞 `X-Remove-Selector` 標頭以剔除導覽列與分享按鈕等非內文區塊。
+*   **關鍵字截斷**：掃描內文，若遇到常見的推薦閱讀標題（如「延伸閱讀」、「推薦新聞」、「其他人也在看」），則自動截斷後續內容，避免將無關的推薦文章寫入筆記中。
 
-### 2.3 User Interface (In-Page Toast)
+### 2.3 使用者介面 (In-Page Toast)
 
-The extension uses DOM-based Toast notifications injected directly into the webpage rather than native OS notifications. This ensures visibility even when the operating system is in "Do Not Disturb" mode and provides immediate status feedback (Loading, Success, or Error diagnostics).
+擴充套件捨棄了容易被作業系統「勿擾模式」攔截的系統通知，改用直接注入網頁 DOM 的 Toast 提示元件。此設計確保了狀態回報（如處理中、成功、錯誤診斷）的即時可見性。
 
-### 2.4 Data Types Supported
+### 2.4 支援的資料處理類型
 
-*   **Full Page/Video**: Extracts the main content or transcript of the current URL.
-*   **Highlight Quote**: Sharing selected text formats it as a Markdown blockquote (`> ...`) with the source URL appended.
-*   **QuickNote**: Sharing plain text without a valid URL saves it directly to a dedicated `QuickNote/` directory.
+*   **完整網頁/影片**：提取當前 URL 的主要文章內容或影片字幕。
+*   **重點畫線 (Highlight)**：選取網頁文字後分享，系統會將其格式化為 Markdown 引用區塊 (`> ...`)，並附上來源網址。
+*   **快速筆記 (QuickNote)**：分享純文字（未包含有效網址）時，系統會直接將該段文字儲存至 Obsidian 內的 `QuickNote/` 目錄。
 
-## 3. Installation and Usage
+## 3. 安裝與使用方式
 
-### 3.1 PC (Chrome / Edge)
+### 3.1 電腦端 (Chrome / Edge)
 
-1.  Enable "Developer Mode" in `chrome://extensions/`.
-2.  Click "Load unpacked" and select the `chrome-extension/` directory.
-3.  Click the extension icon or use the right-click context menu to save content.
+1.  在瀏覽器網址列輸入 `chrome://extensions/` 並開啟「開發人員模式」。
+2.  點選「載入未封裝項目」，選擇本專案的 `chrome-extension/` 目錄。
+3.  點擊瀏覽器右上角的擴充套件圖示，或使用右鍵選單即可進行剪藏。
 
-### 3.2 Android (Kiwi Browser Extension)
+### 3.2 Android 行動端 (Kiwi Browser 擴充套件)
 
-This method provides the most reliable YouTube transcript extraction on mobile by utilizing the frontend DOM strategy.
-1.  Install Kiwi Browser from the Google Play Store.
-2.  Enable "Developer Mode" in `chrome://extensions/` and load the extension ZIP or directory.
-3.  **Desktop Site Requirement**: When viewing YouTube in Kiwi Browser, you must switch to the **"Desktop site"** (`www.youtube.com`) via the browser menu. The mobile site (`m.youtube.com`) lacks the necessary UI elements for transcript extraction. The extension will display a warning if triggered on the mobile site.
+此為行動裝置上最穩定的 YouTube 字幕提取方式，因為它能完整執行前端 DOM 提取策略。
+1.  從 Google Play 商店安裝 Kiwi Browser。
+2.  在網址列輸入 `chrome://extensions/`，開啟「開發人員模式」並載入擴充套件。
+3.  **電腦版網站要求**：在 Kiwi Browser 觀看 YouTube 時，必須透過瀏覽器選單切換至**「電腦版網站」(Desktop site)** (`www.youtube.com`)。因行動版網頁 (`m.youtube.com`) 缺少字幕面板的 UI 元素，擴充套件若偵測到行動版網頁會主動跳出錯誤提示。
 
-### 3.3 Android (PWA Share Hub)
+### 3.3 Android 行動端 (PWA 原生分享)
 
-This method registers the tool in the native Android share menu.
-1.  Navigate to `https://[YOUR_WORKER_DOMAIN]/pwa/install` in Chrome for Android.
-2.  Select "Install App" or "Add to Home Screen" from the browser menu.
-3.  Use the native Android "Share" menu from any app to send links or text to the Obsidian Clipper. *(Note: YouTube extraction via this method relies on the backend API fallback, which may be blocked).*
+此方法可將擷取工具註冊至 Android 的原生分享選單中。
+1.  使用 Android Chrome 瀏覽器造訪：`https://[您的Worker網域]/pwa/install`。
+2.  開啟瀏覽器選單，選擇「安裝應用程式」或「加到主畫面」。
+3.  日後在任何 App 中，只需使用 Android 原生的「分享」功能，將網址或文字傳送給 Obsidian Clipper 即可。*(註：透過此方式提取 YouTube 字幕將完全仰賴後端 API 備用方案，有較高機率遭到阻擋)*。
 
 ### 3.4 Telegram Bot
 
-Send URLs or text messages to the configured Telegram Bot. The Worker processes the request and commits the generated Markdown directly to the GitHub repository.
+將網址或純文字發送給已配置的 Telegram Bot。Cloudflare Worker 會在背景處理該請求，並將生成的 Markdown 直接 Commit 至 GitHub 儲存庫。
 
-## 4. Privacy and Security
+## 4. 隱私與安全性
 
-*   **Direct Architecture**: All data processing occurs directly between the user's browser, their private Cloudflare Worker, and their private GitHub Repository.
-*   **No Third-Party Tracking**: The system does not transmit data to any intermediary databases or third-party analytics services.
-*   **License**: MIT Open-Source License.
+*   **直連架構**：所有的資料處理僅發生在使用者的瀏覽器、專屬的 Cloudflare Worker 以及私人的 GitHub 儲存庫之間。
+*   **無第三方追蹤**：系統不會將任何資料傳送或儲存至中繼資料庫或第三方分析服務。
+*   **授權條款**：本專案採用 MIT 開源授權條款。
