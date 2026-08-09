@@ -22,6 +22,7 @@ async function extractFromDOM() {
         'ytd-video-description-transcript-section-renderer yt-button-shape button, ' +
         'button[aria-label*="transcript" i], ' +
         'button[aria-label*="轉錄" i], ' +
+        'button[aria-label*="转录" i], ' +
         'button[aria-label*="文字稿" i]'
       );
 
@@ -30,7 +31,7 @@ async function extractFromDOM() {
         const allBtns = document.querySelectorAll('button, tp-yt-paper-button, yt-button-shape button');
         for (const btn of allBtns) {
           const txt = (btn.textContent || btn.getAttribute('aria-label') || '').trim();
-          if (/show transcript|顯示轉錄稿|打開文字稿|開啟轉錄稿|字幕/i.test(txt) && !/cc|subtitle/i.test(txt)) {
+          if (/show transcript|顯示轉錄稿|打开转录稿|显示转录稿|打開文字稿|打开文字稿|開啟轉錄稿|字幕/i.test(txt) && !/cc|subtitle/i.test(txt)) {
             transcriptBtn = btn;
             break;
           }
@@ -92,6 +93,16 @@ window.addEventListener('message', async (event) => {
   if (!event.data || event.data.type !== 'OBSIDIAN_GET_TRANSCRIPT') return;
 
   try {
+    // 檢查是否為行動版網頁 (m.youtube.com)
+    if (window.location.hostname === 'm.youtube.com') {
+      window.postMessage({ 
+        type: 'OBSIDIAN_TRANSCRIPT_RESULT', 
+        success: false, 
+        error: '行動版網頁 (m.youtube.com) 不支援字幕擷取！請在 Kiwi Browser 右上角選單勾選「電腦版網站 (Desktop site)」後再試一次！' 
+      });
+      return;
+    }
+
     // 🥇 第一優先：嘗試直接呼叫 YouTube 官方 UI DOM 字幕面板取詞 (100% 免除 HTTP API 遭阻擋或空白字元防護)
     const domTranscript = await extractFromDOM();
     if (domTranscript && domTranscript.length > 30) {
@@ -144,7 +155,7 @@ window.addEventListener('message', async (event) => {
     }
 
     let selectedTrack =
-      tracks.find(t => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh') ||
+      tracks.find(t => t.languageCode === 'zh-Hant' || t.languageCode === 'zh-TW' || t.languageCode === 'zh' || t.languageCode === 'zh-Hans' || t.languageCode === 'zh-CN') ||
       tracks.find(t => t.languageCode && t.languageCode.startsWith('en')) ||
       tracks[0];
 
