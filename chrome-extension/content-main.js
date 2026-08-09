@@ -51,6 +51,42 @@ async function extractFromDOM() {
     }
 
     if (!segments || segments.length === 0) {
+      // 🥇 1.5 終極純文字解析法 (完全無視 DOM 標籤，直接從展開的面板中用正則表達式榨出字幕，完美破解 YouTube 新版 yt-view-model 架構)
+      const activePanels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"], #panels > *');
+      for (const panel of activePanels) {
+        const text = panel.innerText || '';
+        // 只要面板內文包含時間戳特徵，就視為字幕面板
+        if (text.includes('0:0') || text.includes('0:1') || /^\d{1,2}:\d{2}/m.test(text)) {
+           const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+           const extracted = [];
+           let currentTime = '';
+           let currentBuffer = '';
+           
+           for (let i = 0; i < lines.length; i++) {
+             const line = lines[i];
+             // 匹配時間戳 (例如 0:24, 10:05, 1:02:30)
+             if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(line)) {
+               if (currentTime && currentBuffer) {
+                 extracted.push(`- **[${currentTime}]** ${currentBuffer.trim()}`);
+               }
+               currentTime = line;
+               currentBuffer = '';
+             } else if (currentTime) {
+               // 排除掉不像是字幕的系統標題 (例如 "搜尋轉錄稿", "第 X 章節")
+               if (!line.includes('搜尋轉錄稿') && !/^第\s*\d+\s*章節/.test(line) && !line.includes('字幕紀錄')) {
+                 currentBuffer += ' ' + line;
+               }
+             }
+           }
+           if (currentTime && currentBuffer) {
+             extracted.push(`- **[${currentTime}]** ${currentBuffer.trim()}`);
+           }
+           
+           if (extracted.length > 5) {
+             return `> 💡 **字幕來源 (自 YouTube 新版 UI 強制解析)**：Live Transcript UI\n\n` + extracted.join('\n');
+           }
+        }
+      }
       return null;
     }
 
