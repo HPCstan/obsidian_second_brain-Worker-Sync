@@ -52,8 +52,10 @@ async function extractFromDOM() {
 
     if (!segments || segments.length === 0) {
       // 🥇 1.5 終極純文字解析法 (完全無視 DOM 標籤，直接從展開的面板中用正則表達式榨出字幕，完美破解 YouTube 新版 yt-view-model 架構)
-      const activePanels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"], #panels > *');
+      const activePanels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer, #panels > *, ytd-popup-container, div[id*="transcript"], ytd-transcript-search-panel-renderer');
       for (const panel of activePanels) {
+        // 只處理畫面上可見且高度大於 100px 的面板 (避免抓到隱藏的)
+        if (panel.clientHeight < 100) continue;
         const text = panel.innerText || '';
         // 只要面板內文包含時間戳特徵，就視為字幕面板
         if (text.includes('0:0') || text.includes('0:1') || /^\d{1,2}:\d{2}/m.test(text)) {
@@ -203,7 +205,7 @@ window.addEventListener('message', async (event) => {
     const langName = (selectedTrack.name && selectedTrack.name.simpleText) || selectedTrack.languageCode || '預設字幕';
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 延長至 10 秒以防平板網路較慢
     
     let rawText = null;
     let errReason = null;
